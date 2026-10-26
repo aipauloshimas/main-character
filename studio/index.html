@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Main Character Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e0e11'/%3E%3Cpath d='M16 5l3 7 7 .8-5.3 4.8 1.6 7.2L16 21l-6.3 3.8 1.6-7.2L6 12.8 13 12z' fill='%23f5df98'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/studio/style.css">
+<script src="/studio/app.js" defer></script>
+</head>
+<body>
+
+<header class="bar">
+  <h1>Main Character Studio</h1>
+  <span id="clip-name" class="clip-name"></span>
+  <div class="bar-actions">
+    <button id="btn-preview" class="act" type="button">Preview video</button>
+    <button id="btn-render" class="act solid" type="button">Render</button>
+  </div>
+</header>
+
+<main class="studio">
+
+  <!-- the card, the frames -->
+  <section class="left" aria-label="Preview">
+    <div class="stage-area">
+      <div id="preview" class="clip-box">
+        <img id="card-img" class="card-img" alt="The card, as it will be in the video" draggable="false">
+        <video id="preview-video" class="preview-video" controls muted playsinline hidden></video>
+        <div id="handles" class="handles"></div>
+        <div id="preview-note" class="preview-note" role="status" hidden></div>
+        <span id="updating" class="updating" hidden>Updating&hellip;</span>
+      </div>
+    </div>
+    <div class="preview-bar">
+      <div id="mode" class="seg" role="group" aria-label="What the preview shows">
+        <button type="button" data-mode="still" class="on" aria-pressed="true">Still</button>
+        <button type="button" data-mode="play" aria-pressed="false">Play</button>
+      </div>
+      <span id="freeze-info" class="freeze-info"></span>
+      <button id="btn-reset" class="link" type="button">Reset positions</button>
+    </div>
+    <p id="flag-note" class="flag-note" hidden>An amber outline means a note doesn't fit there. Shorten it or drag it somewhere else.</p>
+    <div id="filmstrip" class="filmstrip" role="group" aria-label="Pick the frame to freeze on. The left and right arrow keys step one frame."></div>
+  </section>
+
+  <!-- the controls -->
+  <section class="right" aria-label="Controls">
+    <div class="tabs" role="tablist" aria-label="Controls">
+      <button type="button" role="tab" id="tabbtn-lines" data-tab="lines" aria-controls="tab-lines" aria-selected="true">Lines</button>
+      <button type="button" role="tab" id="tabbtn-style" data-tab="style" aria-controls="tab-style" aria-selected="false">Style</button>
+      <button type="button" role="tab" id="tabbtn-timing" data-tab="timing" aria-controls="tab-timing" aria-selected="false">Timing</button>
+      <button type="button" role="tab" id="tabbtn-shoot" data-tab="shoot" aria-controls="tab-shoot" aria-selected="false">Shooting guide</button>
+      <button type="button" role="tab" id="tabbtn-results" data-tab="results" aria-controls="tab-results" aria-selected="false">Results</button>
+    </div>
+    <div id="error" class="error" role="alert" hidden>
+      <span id="error-text"></span>
+      <button id="error-close" type="button" class="x" aria-label="Dismiss this message">Dismiss</button>
+    </div>
+
+    <div class="panels">
+
+      <!-- Lines -->
+      <div id="tab-lines" class="panel" role="tabpanel" aria-labelledby="tabbtn-lines">
+        <h2>Pick a version</h2>
+        <p class="sub">Claude wrote three different jokes. Pick one, then change any line you like.</p>
+        <div id="versions" class="versions"></div>
+        <p class="hint title-note">The title ("this is your sign to&hellip;") goes on in Instagram or TikTok, like the sound. Claude suggests one when you render.</p>
+
+        <h2>Edit the lines</h2>
+        <div class="fields">
+          <label class="field" for="f-tl"><span class="label">What you do</span>
+            <input id="f-tl" type="text" autocomplete="off" spellcheck="false"><span class="count" data-count="f-tl"></span></label>
+          <label class="field" for="f-tr"><span class="label">Handle</span>
+            <input id="f-tr" type="text" autocomplete="off" spellcheck="false"><span class="count" data-count="f-tr"></span></label>
+          <label class="field wide" for="f-bl"><span class="label">Your 'but&hellip;'</span>
+            <input id="f-bl" type="text" autocomplete="off"><span class="count" data-count="f-bl"></span></label>
+          <label class="field wide" for="f-br"><span class="label">Oddly specific detail</span>
+            <input id="f-br" type="text" autocomplete="off"><span class="count" data-count="f-br"></span></label>
+          <label class="field" for="f-name"><span class="label">Name on screen</span>
+            <input id="f-name" type="text" autocomplete="off"><span class="count" data-count="f-name"></span></label>
+        </div>
+
+        <div id="extras-fields" class="fields extras-fields">
+          <label class="field" for="f-burst" id="field-burst"><span class="label">Burst word</span>
+            <input id="f-burst" type="text" autocomplete="off"><span class="hint">The word in the star. Leave it empty to use your name.</span></label>
+          <label class="field" for="f-emphasis" id="field-emphasis"><span class="label">Emphasis word</span>
+            <input id="f-emphasis" type="text" autocomplete="off"><span class="hint">Gets a wavy line under it when it is in a note.</span></label>
+          <fieldset class="field wide" id="field-stats"><legend class="label">Stats panel</legend>
+            <div class="stat-row"><input id="f-stat0-label" type="text" aria-label="Stat 1 name" autocomplete="off"><input id="f-stat0-value" type="number" min="0" max="10" step="1" aria-label="Stat 1 out of 10"><span>/ 10</span></div>
+            <div class="stat-row"><input id="f-stat1-label" type="text" aria-label="Stat 2 name" autocomplete="off"><input id="f-stat1-value" type="number" min="0" max="10" step="1" aria-label="Stat 2 out of 10"><span>/ 10</span></div>
+            <div class="stat-row"><input id="f-stat2-label" type="text" aria-label="Stat 3 name" autocomplete="off"><input id="f-stat2-value" type="number" min="0" max="10" step="1" aria-label="Stat 3 out of 10"><span>/ 10</span></div>
+            <span class="hint">Three stats that turn your notes into game language.</span>
+          </fieldset>
+        </div>
+      </div>
+
+      <!-- Style -->
+      <div id="tab-style" class="panel" role="tabpanel" aria-labelledby="tabbtn-style" hidden>
+        <h2>Pick a starting point</h2>
+        <p class="sub">The 4 ready-made styles, the ones you save, and your own. A click puts a style on the card.</p>
+        <p id="style-current" class="style-current"></p>
+        <div id="styles-gallery" class="gallery"></div>
+
+        <section class="builder" id="builder" aria-labelledby="builder-title">
+          <div class="b-head">
+            <h2 id="builder-title">Create your own style</h2>
+            <span class="hint">One option per layer. Every option works with every other one.</span>
+          </div>
+          <div class="ctl"><h4>1 &middot; Background</h4><div class="opts" data-layer="bg"></div></div>
+          <div class="ctl"><h4>2 &middot; Cutout edge</h4><div class="opts" data-layer="edge"></div></div>
+          <div class="ctl"><h4>3 &middot; Notes</h4><div class="opts" data-layer="notes"></div></div>
+          <div class="ctl"><h4>4 &middot; Arrows</h4><div class="opts" data-layer="arrows"></div></div>
+          <div class="ctl"><h4>5 &middot; One hero element</h4><div class="opts" data-layer="hero"></div></div>
+          <div class="ctl"><h4>Little extras</h4><div class="toggles" id="extras"></div></div>
+          <div class="ctl"><h4>Colors</h4>
+            <div class="swatches" id="swatches"></div>
+            <div class="chips" id="palettes"></div>
+            <label class="upload">Take the colors from an image <span class="muted">(your logo, your feed)</span>
+              <input type="file" accept="image/*" id="img-palette"></label>
+            <div id="contrast" class="contrast" role="status"></div>
+          </div>
+          <div class="ctl"><h4>Describe it to Claude</h4>
+            <textarea id="describe" rows="3" placeholder="e.g. vaporwave sunset, chrome letters, lots of sparkles" aria-label="Describe the style you want"></textarea>
+            <div class="ask-row">
+              <label class="upload small">Add a reference image <span class="muted">(optional)</span>
+                <input type="file" accept="image/*" id="describe-image"></label>
+              <span id="describe-file" class="muted"></span>
+            </div>
+            <div class="ask-row">
+              <button class="act" id="btn-ask" type="button">Ask Claude</button>
+              <button class="link" id="btn-ask-cancel" type="button" hidden>Cancel</button>
+              <span id="ask-status" class="ask-status" role="status"></span>
+            </div>
+            <p class="ask-note">Claude picks the layers and the colors in your chat, and this page updates by itself.</p>
+          </div>
+          <div class="ctl save"><input id="style-name" type="text" placeholder="Name your style" autocomplete="off" aria-label="Name for your style"><button class="act solid" id="btn-save-style" type="button">Save as my style</button></div>
+        </section>
+
+        <section class="builder plain" aria-labelledby="cutout-title">
+          <div class="b-head"><h2 id="cutout-title">Cutout</h2>
+            <span class="hint">If the edge around you looks off, try these.</span></div>
+          <div class="ctl"><h4>Edge</h4>
+            <div class="slider-row"><span class="muted">Shrink</span>
+              <input id="matte-edge" type="range" min="-4" max="4" step="1" aria-label="Edge: shrink or soften the cutout's border">
+              <span class="muted">Soften</span><output id="matte-edge-value" class="value"></output></div>
+          </div>
+          <div class="ctl"><h4>Detail</h4>
+            <div class="slider-row"><select id="matte-detail" aria-label="Cutout detail">
+              <option value="auto">Automatic</option><option value="high">High</option><option value="max">Maximum</option></select>
+              <span class="muted">Cuts you out again around the freeze, finer. It takes a few seconds.</span></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Timing -->
+      <div id="tab-timing" class="panel" role="tabpanel" aria-labelledby="tabbtn-timing" hidden>
+        <h2>Timing</h2>
+        <p class="sub">Where the freeze lands, and how long it stays. The defaults line up with the trending sound.</p>
+        <div id="timing-sliders" class="timing"></div>
+
+        <div class="ctl"><h4>Reveal</h4>
+          <div class="opts" id="reveal-options">
+            <button type="button" class="opt" data-reveal="staggered" aria-pressed="false">Staggered</button>
+            <button type="button" class="opt" data-reveal="all" aria-pressed="false">All at once</button>
+          </div>
+          <p class="hint">Staggered: the notes pop in group by group. All at once: everything appears together.</p>
+        </div>
+        <div class="ctl"><h4>Boil</h4>
+          <div class="toggles"><button type="button" class="tog" id="tog-boil" aria-pressed="false" aria-label="Boil">On</button></div>
+          <p class="hint">A small wobble that keeps the card feeling hand-made.</p>
+        </div>
+        <div class="ctl"><h4>Shutter click</h4>
+          <div class="toggles"><button type="button" class="tog" id="tog-shutter" aria-pressed="false" aria-label="Shutter click">Off</button></div>
+          <p class="hint">A camera click, with a two-frame white flash, on the freeze.</p>
+        </div>
+
+        <h2>Music</h2>
+        <p class="sub">Optional. The freeze and the release snap to the nearest beat of your track. Leave it out and add the trending sound in the app.</p>
+        <div class="music">
+          <label class="upload">Add a music track
+            <input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" id="music-file"></label>
+          <div id="music-info" class="music-info" role="status"></div>
+          <button type="button" class="link" id="music-remove" hidden>Remove the music</button>
+        </div>
+      </div>
+
+      <!-- Shooting guide -->
+      <div id="tab-shoot" class="panel" role="tabpanel" aria-labelledby="tabbtn-shoot" hidden>
+        <h2>Shooting guide</h2>
+        <p class="sub">Five minutes with your phone gets you a clip that works.</p>
+        <ol class="guide">
+          <li><b>Shoot horizontally if you can,</b> with the phone propped low on a table.</li>
+          <li><b>Leave the frame empty</b> for about a second.</li>
+          <li><b>Walk in close</b> to the lens.</li>
+          <li><b>Hold a deadpan stare</b> for two seconds, then smile.</li>
+          <li><b>Do two or three takes.</b></li>
+        </ol>
+      </div>
+
+      <!-- Results -->
+      <div id="tab-results" class="panel" role="tabpanel" aria-labelledby="tabbtn-results" hidden>
+        <h2>Results</h2>
+        <p id="results-empty" class="sub">Nothing rendered yet. Press Render, and your video shows up here.</p>
+        <div id="results-body" hidden>
+          <video id="result-video" class="result-video" controls playsinline></video>
+          <p id="results-when" class="sub"></p>
+          <div id="results-warning" class="warning" role="status" hidden></div>
+          <ul id="results-files" class="files"></ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="busy" class="busy" role="alert" hidden><div class="busy-card"><div class="spin" aria-hidden="true"></div><p id="busy-text"></p></div></div>
+
+</body>
+</html>
