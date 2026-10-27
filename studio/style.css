@@ -140,19 +140,6 @@ h2 { font: 700 20px/1.2 var(--ui); margin: 26px 0 4px; }
 .sub { color: var(--muted); font-size: 14px; margin: 0 0 14px; max-width: 640px; }
 
 /* ---- Lines ---- */
-.versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 8px; }
-.ver {
-  text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; background: var(--card);
-  border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s, transform .15s;
-}
-.ver:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-2px); }
-.ver[aria-pressed="true"] { border-color: var(--accent); background: #1d1a12; }
-.ver:disabled { opacity: .5; }
-.ver-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; }
-.ver-badge { font: 700 11px var(--ui); text-transform: uppercase; letter-spacing: .5px; color: var(--ink-on-accent); background: var(--accent); padding: 1px 8px; border-radius: 999px; }
-.ver-notes { display: block; padding: 8px 0 0; border-top: 1px solid var(--line); color: #cfcbd6; font-size: 13px; line-height: 1.4; }
-.ver-notes .line { display: block; margin: 2px 0; }
-.ver-empty { display: block; color: var(--muted); font-size: 13px; }
 .title-note { max-width: 640px; margin: 0 0 4px; }
 
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 10px; }

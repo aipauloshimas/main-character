@@ -19,6 +19,7 @@ from pathlib import Path
 from . import config, glyphs
 from .fileio import retry_locked
 from .palette import floor_contrast, text_contrast
+from .styles.recipes import complete as complete_recipe
 from .styles.recipes import validate_recipe
 
 SCHEMA = 2  # 2 is the clip's own shape (Amendment 1); 1 had the letterbox, the full screen and a title (the hook)
@@ -32,8 +33,9 @@ _SCHEMA_1_LAYOUTS = {"letterbox": "landscape", "fullscreen": "portrait"}
 UPDATE_LOCK = threading.RLock()
 NOTE_KEYS = ("tl", "tr", "bl", "br")  # top left, top right, bottom left, bottom right
 VERSION_KEYS = ("A", "B", "C")
-# Soft limits, in characters. Going over only warns; the text is never cut.
-SOFT_LIMITS = {"tl": 30, "tr": 24, "bl": 34, "br": 30, "name": 16}
+# Soft limits, in characters. Going over only warns; the text is never cut. (bubble is the speech bubble's
+# text, copy.extras.bubble.)
+SOFT_LIMITS = {"tl": 30, "tr": 24, "bl": 34, "br": 30, "name": 16, "bubble": 14}
 
 _POSITION_KEYS = NOTE_KEYS + ("burst",)
 _POSITION_NAMES = ", ".join(_POSITION_KEYS[:-1]) + f" and {_POSITION_KEYS[-1]}"  # "tl, tr, bl, br and burst"
@@ -60,7 +62,7 @@ def empty_copy() -> dict:
     return {
         "notes": {key: "" for key in NOTE_KEYS},
         "name": "",
-        "extras": {"burst": None, "emphasis": None, "stats": None},
+        "extras": {"burst": None, "emphasis": None, "stats": None, "bubble": None},
     }
 
 
@@ -84,7 +86,7 @@ def default_project(clip: dict, layout: str, work: tuple[int, int], style: dict)
         "work": {"width": int(work[0]), "height": int(work[1])},
         "freeze": {"frame": 0, "suggested": []},
         "timing": dict(config.TIMING_DEFAULTS),
-        "audio": {"track": None, "onsets": []},
+        "audio": {"track": None, "onsets": [], "original": True},
         "style": deepcopy(style),
         "style_source": str(style.get("id", "")),
         "matte": {"detail": "auto", "edge": 0},
@@ -113,8 +115,12 @@ def _migrated(project):
       was cut at a size that is not its plan: init cuts it again, and render says so.
     - The title is gone, whatever the schema: the edit has none (Amendment 1), so the hook of the copy and
       of each version is dropped.
+    - The clip keeps its own sound unless the file says otherwise: a file from before the setting has
+      audio.original on.
     - The edge of the cutout is a whole number: the studio's slider used to move in halves, so a 1.5 is
       read as 2 (validate would refuse it, and the project could not be changed at all).
+    - The style has every little extra: a project from before the eleven new ones has its style with
+      only tape, stars and grain, and the rest are off (recipes.complete).
 
     Everything else stays as it is. Anything that is not a project (a dict) is given back as it is."""
     if not isinstance(project, dict):
@@ -126,9 +132,14 @@ def _migrated(project):
     for block in (project.get("copy"), *(versions.values() if isinstance(versions, dict) else ())):
         if isinstance(block, dict):
             block.pop("hook", None)
+    audio = project.get("audio")
+    if isinstance(audio, dict):
+        audio.setdefault("original", True)
     matte = project.get("matte")
     if isinstance(matte, dict) and isinstance(matte.get("edge"), float) and math.isfinite(matte["edge"]):
         matte["edge"] = round(matte["edge"])
+    if "style" in project:
+        project["style"] = complete_recipe(project["style"])
     return project
 
 
@@ -188,6 +199,7 @@ def update(
         audio = merged.get("audio")
         if isinstance(audio, dict):
             audio.setdefault("track", None)  # a null in a patch deleted it, and the file keeps it as a null
+            audio.setdefault("original", True)  # and a null here puts the default back: the clip keeps its sound
         warnings = validate(merged)
         _check_freeze_in_clip(current, merged)
         if merged != current:
@@ -321,6 +333,7 @@ def _check_audio(audio: dict) -> None:
     _require(isinstance(audio, dict), "audio must be an object")
     _require(audio.get("track") is None or isinstance(audio["track"], str), "audio.track must be text or null")
     _require(isinstance(audio.get("onsets"), list), "audio.onsets must be a list")
+    _require(isinstance(audio.get("original", True), bool), "audio.original must be true or false")
 
 
 def _check_matte(matte: dict) -> None:
@@ -375,7 +388,7 @@ def _check_copy(block: dict, where: str) -> None:
     _require(isinstance(block.get("name"), str), f"{where}.name must be text")
     extras = block.get("extras")
     _require(isinstance(extras, dict), f"{where}.extras must be an object")
-    for key in ("burst", "emphasis"):
+    for key in ("burst", "emphasis", "bubble"):
         _require(
             extras.get(key) is None or isinstance(extras[key], str),
             f"{where}.extras.{key} must be text or null",
@@ -421,7 +434,7 @@ def _clean_copy(block: dict, where: str, warnings: list[str]) -> None:
         clean(block["notes"], key, f"notes.{key}")
     clean(block, "name", "name")
     extras = block["extras"]
-    for key in ("burst", "emphasis"):
+    for key in ("burst", "emphasis", "bubble"):
         if extras.get(key) is not None:
             clean(extras, key, f"extras.{key}")
     for index, (label, value) in enumerate(extras.get("stats") or []):
@@ -470,6 +483,7 @@ def _contrast_warnings(style: dict) -> list[str]:
 def _soft_limit_warnings(block: dict) -> list[str]:
     fields = [(f"copy.notes.{key}", block["notes"][key], SOFT_LIMITS[key]) for key in NOTE_KEYS]
     fields.append(("copy.name", block["name"], SOFT_LIMITS["name"]))
+    fields.append(("copy.extras.bubble", block["extras"].get("bubble") or "", SOFT_LIMITS["bubble"]))
     return [
         f"{label} is {len(text)} characters; the soft limit is {limit}."
         for label, text, limit in fields

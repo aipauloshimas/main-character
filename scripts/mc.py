@@ -94,7 +94,7 @@ def _parser() -> argparse.ArgumentParser:
 
     render = commands.add_parser("render", help="render the videos")
     render.add_argument("project_dir")
-    render.add_argument("--preview", action="store_true", help="a small, fast video with no sound")
+    render.add_argument("--preview", action="store_true", help="a small, fast video, with the clip's own sound")
     render.set_defaults(run=_render)
 
     serve = commands.add_parser("serve", help="run the studio page for a project, on this computer only")
@@ -217,6 +217,7 @@ def _style(args: argparse.Namespace) -> int:
             raise ValueError("--answers must be a time like 2026-10-26T05:00:00Z.") from None
     recipe = _read_json_object(args.file, "style")
     recipes.validate_recipe(recipe)
+    recipe = recipes.complete(recipe)  # (a style written before the newer extras has them off)
     contrast = palette.text_contrast(recipe)
     if contrast < config.CONTRAST_MIN:
         raise ValueError(

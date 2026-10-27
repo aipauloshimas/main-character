@@ -1,7 +1,7 @@
 """The render: a project folder in, the finished videos out.
 
 render() plans the timeline, draws the card pictures, encodes each segment, joins the parts, adds
-the sound and writes the cover. It follows the quality of the clip (ruling Q1):
+the sound (the clip's own, the click and the music) and writes the cover. It follows the quality of the clip (ruling Q1):
 
 - The frame rate is the clip's own (media.output_fps), up to 60. Every frame count, here and in the
   timeline, is in frames of that rate, so no frame is made up and none is repeated.
@@ -119,17 +119,20 @@ def render(
 ) -> RenderResult:
     """Render a project folder and return what was made.
 
-    The finished video is renders/<clip>-main-character.mp4, with the shutter click on the freeze
-    when timing.shutter is on. A track in audio.track also gives renders/<clip>-with-music.mp4 (with
-    the click too, when it is on), and the card as a still gives renders/<clip>-cover.png.
+    The finished video is renders/<clip>-main-character.mp4. Its sound is the clip's own (when
+    audio.original is on, and the clip has sound), silent over the card and back in step with the
+    picture when the video lets go, with the shutter click on the freeze when timing.shutter is on.
+    A track in audio.track also gives renders/<clip>-with-music.mp4 (the track and the click, without
+    the clip's sound), and the card as a still gives renders/<clip>-cover.png.
     The freeze and the release snap to the track's hits: audio.onsets, or, when the project has
     none, the hits found in the track now. status.rendered_at, status.outputs (the files, as
     paths inside the project folder) and the moments the card starts and ends, status.freeze_out
     and status.release_out (seconds), are saved to project.json, which is read again just before,
     so a change made while the render ran is kept.
 
-    A preview is at the plan's size and fast: only renders/preview.mp4, with no sound, no cover and
-    no change to the project. A final render is at the size of the clip (config.output_size), and
+    A preview is at the plan's size and fast: only renders/preview.mp4, with the same sound as the
+    finished video (the clip's own, and the click) but no music, no cover and no change to the
+    project. A final render is at the size of the clip (config.output_size), and
     when that is not the plan's it cuts the freeze frame out of the clip again at that size, with
     matte_runner (matte.run_rvm unless a test gives another), at the detail the project says: that
     needs the matte model, and ModelMissing says so before the clip is cut.
@@ -174,7 +177,9 @@ def render(
         parts = _encode_parts(project_dir, project, timeline, source, work, rate, preview, size, full, report)
         joined = work / "joined.mp4"
         bitrate = None if preview else media.target_bitrate(clip.get("bit_rate"))
-        media.concat(parts, joined, fps=rate, bitrate=bitrate)
+        card_at = round(timeline.freeze_out * float(rate))
+        still = (card_at, round(timeline.release_out * float(rate)) - 1)
+        media.concat(parts, joined, fps=rate, bitrate=bitrate, still=still)
         _check_join(joined, timeline.total_frames)
         report("join", 1, 1)
 
@@ -184,9 +189,21 @@ def render(
                 timeline.release_out, timeline.warning, output_notes(clip, rate),
             )
 
+        # The clip's own sound, laid out on the timeline (silent over the card), unless the person muted it
+        # or the clip has none. The shutter click goes over it.
+        voice = None
+        if project["audio"].get("original", True):
+            voice = media.clip_sound(source, timeline.segments, rate, work / "clip-sound.wav")
+        click = sfx.shutter_click(work / "click.wav") if timing["shutter"] else None
+
         if preview:
             video = renders / "preview.mp4"
-            _publish({joined: video})
+            if voice or click:
+                heard = work / "preview.mp4"
+                _add_sound(joined, heard, None, click, None, timeline.freeze_out, voice)
+                _publish({heard: video})
+            else:
+                _publish({joined: video})
             return result(video, None, None)
 
         stem = clip["stem"]
@@ -195,9 +212,8 @@ def render(
             work / f"{stem}-with-music.mp4",
             work / f"{stem}-cover.png",
         )
-        click = sfx.shutter_click(work / "click.wav") if timing["shutter"] else None
-        _add_sound(joined, video, with_music, click, track, timeline.freeze_out)
-        if click or track:
+        _add_sound(joined, video, with_music, click, track, timeline.freeze_out, voice)
+        if click or track or voice:
             report("sound", 1, 1)
         card.render_card(project_dir, project, size=size, source=full).save(cover)
         report("cover", 1, 1)
@@ -362,17 +378,31 @@ def _encode_parts(
 
 
 def _add_sound(
-    joined: Path, video: Path, with_music: Path, click: Path | None, track: Path | None, at: float
+    joined: Path,
+    video: Path,
+    with_music: Path | None,
+    click: Path | None,
+    track: Path | None,
+    at: float,
+    voice: Path | None = None,
 ) -> None:
-    """Make the finished video from the silent joined one: with the click at `at` seconds when
-    there is one, else as it is. With a track, also with_music: the track (and the click, over it)
-    added to the picture, which is copied and not encoded again."""
+    """Make the finished video from the silent joined one. Its sound is `voice`, the clip's own sound
+    (media.clip_sound), with the click over it at `at` seconds when there is one; with no voice, the
+    click alone, and with neither the picture as it is. With a track, also with_music: the track (and
+    the click, over it) added to the picture, without the clip's sound. The picture is copied and not
+    encoded again."""
     if track:
         if click:
             media.mix_click(joined, click, at, with_music, music=track)
         else:
             media.mux_audio(joined, track, with_music)
-    if click:
+    if voice:
+        # (the voice has faded out at its end already, so it is not faded again)
+        if click:
+            media.mix_click(joined, click, at, video, music=voice, fade_out=0)
+        else:
+            media.mux_audio(joined, voice, video, fade_out=0)
+    elif click:
         media.mix_click(joined, click, at, video)
     else:
         shutil.copyfile(joined, video)

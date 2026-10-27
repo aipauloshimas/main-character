@@ -67,14 +67,15 @@ BOTTOM_BAND = 0.78125
 RAIL_LEFT, RAIL_TOP = 0.8704, 0.5
 
 # Timing controls. "freeze_at" is where the freeze lands in the output, "hold" how long the
-# card stays, "tail" how much clip plays after it, "release_from" how far past the freeze
+# card stays, "tail" how much clip plays after it (at most the rest of the clip; the default, the
+# longest clip there is, plays all of it), "release_from" how far past the freeze
 # frame the clip resumes. "reveal" is "staggered" or "all". "boil" wobbles the card, and
 # "shutter" adds a click with a two-frame white flash on the freeze.
 TIMING_DEFAULTS = {
     "freeze_at": 2.07,
     "hold": 3.0,
     "head_speed": 1.0,
-    "tail": 1.2,
+    "tail": 30.0,
     "release_from": 0.0,
     "reveal": "staggered",
     "boil": True,
@@ -84,7 +85,7 @@ TIMING_RANGES = {
     "freeze_at": (0.5, 5.0),
     "hold": (1.0, 6.0),
     "head_speed": (0.75, 1.5),
-    "tail": (0.0, 3.0),
+    "tail": (0.0, 30.0),
     "release_from": (0.0, 1.0),
 }
 MAX_FILL = 1.0  # the first frame may be held at most this long to fill the head

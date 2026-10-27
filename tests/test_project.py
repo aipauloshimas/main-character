@@ -11,6 +11,7 @@ import pytest
 
 from mclib import config
 from mclib import project as project_file
+from mclib.styles.recipes import EXTRAS
 from mclib.project import (
     NOTE_KEYS,
     PROJECT_FILE,
@@ -40,7 +41,7 @@ RECIPE = {
     "notes": "marker",
     "arrows": "curly",
     "hero": "none",
-    "extras": {"tape": False, "stars": False, "grain": True},
+    "extras": {"tape": False, "stars": False, "grain": True, **{key: False for key in EXTRAS[3:]}},
     "palette": {
         "dark": "#7d2a72",
         "light": "#f2a9de",
@@ -87,6 +88,9 @@ BAD_SETTINGS = [
     (("freeze", "suggested"), 62, "freeze.suggested"),
     (("audio", "track"), 7, "audio.track"),
     (("audio", "onsets"), "none", "audio.onsets"),
+    (("audio", "original"), "yes", "audio.original"),
+    (("audio", "original"), 1, "audio.original"),
+    (("audio", "original"), None, "audio.original"),
     (("style_source",), 3, "style_source"),
     (("matte", "detail"), "ultra", "matte.detail"),
     (("matte", "edge"), 5, "matte.edge"),
@@ -127,7 +131,7 @@ def test_default_project_has_timing_defaults():
         "freeze_at": 2.07,
         "hold": 3.0,
         "head_speed": 1.0,
-        "tail": 1.2,
+        "tail": 30.0,
         "release_from": 0.0,
         "reveal": "staggered",
         "boil": True,
@@ -146,14 +150,14 @@ def test_default_project_has_timing_defaults():
     empty_copy = {
         "notes": {"tl": "", "tr": "", "bl": "", "br": ""},
         "name": "",
-        "extras": {"burst": None, "emphasis": None, "stats": None},
+        "extras": {"burst": None, "emphasis": None, "stats": None, "bubble": None},
     }
     assert p["copy"] == empty_copy
     assert p["versions"] == {"A": empty_copy, "B": empty_copy, "C": empty_copy}
     assert project_file.empty_copy() == empty_copy and "hook" not in SOFT_LIMITS
-    assert set(SOFT_LIMITS) == {"tl", "tr", "bl", "br", "name"}
+    assert set(SOFT_LIMITS) == {"tl", "tr", "bl", "br", "name", "bubble"}
     assert p["freeze"] == {"frame": 0, "suggested": []}
-    assert p["audio"] == {"track": None, "onsets": []}
+    assert p["audio"] == {"track": None, "onsets": [], "original": True}  # the clip's own sound stays by default
     assert p["matte"] == {"detail": "auto", "edge": 0}
     assert p["positions"] == {"tl": None, "tr": None, "bl": None, "br": None, "burst": None}
     assert p["style_request"] is None
@@ -321,6 +325,30 @@ def test_a_project_of_schema_1_is_migrated_when_it_is_loaded(tmp_path):
     assert load(future)["schema"] == 3
     with pytest.raises(ValueError, match="schema must be 2, got 3"):
         validate(load(future))
+
+
+def test_load_adds_the_original_sound_setting_to_an_older_file(tmp_path):
+    # Before the clip kept its own sound, audio had only the track and its hits. An older file is read as a
+    # project that keeps the clip's sound (that is the default), and a file that says Off stays Off
+    folder = tmp_path / "older"
+    p = make_project()
+    del p["audio"]["original"]
+    folder.mkdir()
+    (folder / PROJECT_FILE).write_text(json.dumps(p), encoding="utf-8")
+
+    loaded = load(folder)
+
+    assert loaded["audio"]["original"] is True and validate(loaded) == []
+    assert "original" not in json.loads((folder / PROJECT_FILE).read_text(encoding="utf-8"))["audio"]  # a read leaves the file
+    merged, _ = update(folder, {"timing": {"shutter": True}})
+    assert merged["audio"]["original"] is True
+    assert json.loads((folder / PROJECT_FILE).read_text(encoding="utf-8"))["audio"]["original"] is True
+
+    merged, _ = update(folder, {"audio": {"original": False}})
+    assert merged["audio"]["original"] is False and load(folder)["audio"]["original"] is False
+    # a null in a patch deletes the key, and the file keeps the default, as it does for the track
+    merged, _ = update(folder, {"audio": {"original": None}})
+    assert merged["audio"]["original"] is True
 
 
 def test_load_drops_the_title_of_an_older_file(tmp_path):
@@ -579,7 +607,7 @@ def test_validate_rejects_out_of_range_timing():
         "freeze_at": (0.5, 5.0),
         "hold": (1.0, 6.0),
         "head_speed": (0.75, 1.5),
-        "tail": (0.0, 3.0),
+        "tail": (0.0, 30.0),
         "release_from": (0.0, 1.0),
     }
 

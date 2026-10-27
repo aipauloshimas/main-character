@@ -66,7 +66,12 @@ EXPECTED_LABELS = {
     },
     "arrows": {"curly": "Curly", "doodle": "Doodle", "straight": "Line + dot", "none": "None"},
     "hero": {"none": "None", "burst": "Name burst", "stats": "Stats panel", "hud": "Game HUD"},
-    "extras": {"tape": "Tape", "stars": "Stars", "grain": "Film grain"},
+    "extras": {
+        "tape": "Tape", "stars": "Stars", "grain": "Film grain", "hearts": "Hearts", "circle": "Scribble circle",
+        "crown": "Doodle crown", "sparkles": "Sparkles", "motion": "Motion lines", "confetti": "Confetti",
+        "rec": "REC timestamp", "vhs": "VHS lines", "leak": "Light leak", "nametag": "Name tag",
+        "bubble": "Speech bubble",
+    },
 }
 
 # Global Constraints: the 7 presets in role order (dark, light, tex, edge, ink).
@@ -119,7 +124,10 @@ def test_builtins_are_valid(tmp_path, monkeypatch):
         "notes": ("marker", "comic", "hand", "pixel", "label"),
         "arrows": ("curly", "doodle", "straight", "none"),
         "hero": ("none", "burst", "stats", "hud"),
-        "extras": ("tape", "stars", "grain"),
+        "extras": (
+            "tape", "stars", "grain", "hearts", "circle", "crown", "sparkles", "motion", "confetti", "rec", "vhs",
+            "leak", "nametag", "bubble",
+        ),
     }
     assert LABELS == EXPECTED_LABELS
 
@@ -136,7 +144,7 @@ def test_builtins_are_valid(tmp_path, monkeypatch):
         assert (recipe["id"], recipe["name"]) == (recipe_id, name)
         assert (recipe["bg"], recipe["edge"], recipe["notes"]) == (bg, edge, note_style)
         assert (recipe["arrows"], recipe["hero"]) == (arrows, hero)
-        assert recipe["extras"] == {key: key in extras for key in ("tape", "stars", "grain")}
+        assert recipe["extras"] == {key: key in extras for key in OPTIONS["extras"]}  # (the eleven newer are all off)
         assert recipe["palette"] == PALETTES[preset]
         assert recipe["palette"] is not PALETTES[preset]
 

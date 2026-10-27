@@ -197,6 +197,7 @@ class Studio:
         audio = merged.get("audio")
         if isinstance(audio, dict):
             audio.setdefault("track", None)  # a null in a patch deleted it, and render reads audio["track"]
+            audio.setdefault("original", True)  # a null here puts the default back: the clip keeps its sound
         warnings = project_file.validate(merged)
         if patch and isinstance(patch.get("freeze"), dict) and "frame" in patch["freeze"]:
             self._check_freeze(merged)

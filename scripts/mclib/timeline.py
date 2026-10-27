@@ -115,7 +115,10 @@ def build_timeline(
     parts.append(Segment("card", card_frames))
 
     tail_start = min(freeze_time + timing["release_from"], clip_duration)
-    tail_frames = math.floor(min(timing["tail"], clip_duration - tail_start) * fps + _EPSILON)
+    # The tail asked for, but no more frames than the clip has left: every frame that starts before
+    # the clip ends, so a clip whose length is not a whole number of frames keeps its last one.
+    frames_left = math.ceil((clip_duration - tail_start) * fps - _EPSILON)
+    tail_frames = min(math.floor(timing["tail"] * fps + _EPSILON), max(frames_left, 0))
     parts.append(Segment("clip", tail_frames, tail_start))
 
     # A freeze on the first frame, for one, leaves a head of 0 frames. An empty segment would

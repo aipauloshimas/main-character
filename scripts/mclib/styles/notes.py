@@ -924,9 +924,9 @@ def draw_extras(
     img: Image.Image, layout: dict[str, NoteBox], recipe: dict, visible, face, keepout=(),
     scale: Scale = IDENTITY,
 ) -> None:
-    """Draw the little extras that sit on the card, in place on an RGBA stage-sized image: the tape
-    on the notes, and the stars beside the face. (The film grain is part of the stage itself, and
-    engine.compose_stage adds it.) face is the face box (x0, y0, x1, y1) of the layout's context, or
+    """Draw the first little extras that sit on the card, in place on an RGBA stage-sized image: the tape
+    on the notes, and the stars beside the face. (The film grain, vhs and the light leak are part of the
+    stage itself, and engine.compose_stage adds them; the eleven that came later are styles.extras'.) face is the face box (x0, y0, x1, y1) of the layout's context, or
     None, which is no stars. keepout is the layout's context's boxes to keep out of, (x0, y0, x1,
     y1) in stage pixels (the title room of a 9:16 card): no piece of tape lies across one
     and no star sits on one. Tape comes in with its note's group, and the stars with the arrows;
@@ -940,11 +940,20 @@ def draw_extras(
     if extras["tape"]:
         _tape(img, layout, recipe["palette"], visible, keepout, scale)
     if extras["stars"] and face is not None and "arrows" in visible:
-        taken = [(box.x, box.y, box.x + box.w, box.y + box.h) for box in layout.values()]
-        if extras["tape"]:
-            taken += [_tape_box(*spot) for spot in _tape_spots(layout, keepout).values()]
-        taken += [tuple(kept) for kept in keepout]
-        curves = []
-        if recipe["arrows"] != "none":
-            curves = [point for box in layout.values() if box.arrow for point in quad_points(*box.arrow, 16)]
+        taken, curves = obstacles(layout, recipe, keepout)
         _stars(img, taken, curves, recipe["palette"], face, scale)
+
+
+def obstacles(layout: dict[str, NoteBox], recipe: dict, keepout=()) -> tuple[list, list]:
+    """What the stars, and every extra that is placed as they are (styles.extras), keep off, in px of the
+    plan: the boxes of the layout (the notes and the hero's boxes), the pieces of tape when the tape is on,
+    and the keep-out boxes, as (x0, y0, x1, y1); and the points of the arrows' curves, as (x, y), none when
+    the recipe has no arrows. The lists are new ones, for the caller to add to."""
+    taken = [(box.x, box.y, box.x + box.w, box.y + box.h) for box in layout.values()]
+    if recipe["extras"]["tape"]:
+        taken += [_tape_box(*spot) for spot in _tape_spots(layout, keepout).values()]
+    taken += [tuple(kept) for kept in keepout]
+    curves = []
+    if recipe["arrows"] != "none":
+        curves = [point for box in layout.values() if box.arrow for point in quad_points(*box.arrow, 16)]
+    return taken, curves

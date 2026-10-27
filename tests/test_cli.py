@@ -25,6 +25,7 @@ from mclib import analyze, card, doctor, matte, media, palette, pipeline, render
 from mclib import project as project_file
 from mclib.raster import from_image
 from mclib.render import RenderResult
+from mclib.styles import recipes
 
 MC = Path(__file__).resolve().parents[1] / "scripts" / "mc.py"
 LONG_AGO = "2020-01-01T00:00:00+00:00"
@@ -446,7 +447,7 @@ def test_cli_init_then_render_a_24_fps_clip(synthetic_clip_24, tmp_path, monkeyp
     info = media.probe(video)
     # the video is the clip's own frame: 1920x1080 stays 1920x1080
     assert (info["width"], info["height"], info["fps"], info["frames"]) == (1920, 1080, 24.0, plan.total_frames)
-    assert plan.total_frames == 2 + 48 + 24 + 28
+    assert plan.total_frames == 2 + 48 + 24 + 48  # the tail is the 2 s of clip left
     assert lines[2] == f"FRAMES {plan.total_frames} FREEZE {plan.freeze_out:.2f} RELEASE {plan.release_out:.2f}"
     assert project_file.load(folder)["status"]["outputs"] == [
         f"renders/{name}-main-character.mp4", f"renders/{name}-cover.png"]
@@ -749,7 +750,9 @@ def test_cli_style_saves_the_recipe_and_answers_the_open_request(fake_project, t
     assert capsys.readouterr().out.splitlines() == [
         f"CONTRAST {palette.floor_contrast(palette.text_contrast(SUNSET))}", "STYLE Sunset Arcade"]
     saved = project_file.load(folder)
-    assert saved["style"] == SUNSET and saved["style_source"] == "custom"
+    # (the file's recipe has the first three extras only: the newer ones are saved, off)
+    assert saved["style"] == recipes.complete(SUNSET) and saved["style_source"] == "custom"
+    assert saved["style"]["extras"] == {**SUNSET["extras"], **{key: False for key in recipes.EXTRAS[3:]}}
     assert saved["copy"] == project["copy"] and saved["positions"] == project["positions"]  # nothing else moved
     request = saved["style_request"]
     answered = request.pop("answered_at")
@@ -919,7 +922,7 @@ def test_cli_style_marks_only_the_request_it_was_asked_about(fake_project, tmp_p
     assert mc.main(["style", str(folder), "--file", str(recipe_file), "--answers", first["at"]]) == 0
     assert capsys.readouterr().out.splitlines() == [contrast, "STYLE Sunset Arcade", note]
     saved = project_file.load(folder)
-    assert saved["style"] == SUNSET and saved["style_source"] == "custom"
+    assert saved["style"] == recipes.complete(SUNSET) and saved["style_source"] == "custom"
     assert saved["style_request"] == second and saved["style_request"]["answered_at"] is None
 
     # the stamp of the request that is open answers it, with no note, whatever way the time is written
@@ -975,4 +978,4 @@ def test_cli_patch_and_style_run_as_programs(fake_project, tmp_path):
     done = run_mc("style", folder, "--file", write_json(tmp_path / "style.json", SUNSET))
     assert done.returncode == 0 and done.stderr == ""
     assert re.fullmatch(r"CONTRAST \d+\.\d\nSTYLE Sunset Arcade", done.stdout.strip())
-    assert project_file.load(folder)["style"] == SUNSET
+    assert project_file.load(folder)["style"] == recipes.complete(SUNSET)

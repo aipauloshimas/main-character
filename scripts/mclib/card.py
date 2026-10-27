@@ -332,7 +332,10 @@ def render_card(
         picture = _stage(folder, project, recipe, shown, variant, size, source, scale)
 
     layer = Image.new("RGBA", picture.size, (0, 0, 0, 0))
-    engine.draw_overlay(layer, recipe, boxes, project["copy"], visible, context.face, context.keepout, scale)
+    engine.draw_overlay(
+        layer, recipe, boxes, project["copy"], visible, context.face, context.keepout, scale, context.person,
+        variant,
+    )
     canvas = picture.convert("RGBA")
     canvas.alpha_composite(layer)
     card = canvas.convert("RGB")

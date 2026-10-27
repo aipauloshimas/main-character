@@ -143,7 +143,7 @@ def test_the_copy_of_the_plan_is_on_the_page():
         "Take the colors from an image", "Describe it to Claude", "Ask Claude", "Claude is on it",
         "Claude updated your style", "Save as my style", "Name your style",
         "Freeze at", "Hold", "Head speed", "Tail", "Release from", "Staggered", "All at once", "Boil",
-        "Shutter click", "Music", "Shooting guide",
+        "Shutter click", "Original sound", "Music", "Shooting guide",
         "This note doesn't fit here. Shorten it or drag it somewhere else.",
         "easy to read on a phone", "hard to read on a phone. Try a darker or lighter text color.",
         "Little extras", "One hero element", "Cutout edge", "Notes", "Arrows", "Background",
@@ -155,11 +155,49 @@ def test_the_copy_of_the_plan_is_on_the_page():
 def test_the_page_says_where_the_title_goes():
     html = read("index.html")
 
-    # One quiet line by the version cards: the title is not part of the edit, the person adds it in the app
+    # One quiet line under the lines: the title is not part of the edit, the person adds it in the app
     assert 'The title ("this is your sign to&hellip;") goes on in Instagram or TikTok, like the sound. ' \
            "Claude suggests one when you render." in html
-    assert html.index('id="versions"') < html.index("goes on in Instagram") < html.index("Edit the lines")
+    assert html.index("Edit the lines") < html.index("goes on in Instagram") < html.index('id="f-tl"')
     assert re.search(r'<p class="[^"]*\bhint\b[^"]*">The title \(', html)  # a quiet one: the page's own muted hint
+
+
+def test_the_page_does_not_show_the_versions():
+    # The interview still writes three versions, but the person picks in the chat (Claude patches the copy), so
+    # the studio has no "Pick a version" block, no cards for them and no styles for the cards. The lines stay
+    html, script, css = read("index.html"), read("app.js"), read("style.css")
+    assert "Pick a version" not in html and "Nothing written yet" not in script
+    assert 'id="versions"' not in html and "paintVersions" not in script and "pickVersion" not in script
+    assert not re.search(r"\.ver\b|\.ver-|\.versions", css)
+    assert "Edit the lines" in html and 'id="f-bl"' in html
+    # and editing a line changes the copy and nothing else: the versions are as the interview wrote them
+    assert re.search(r"function editCopy\(change\) \{\s*edit\(\{ copy: change \}\);\s*\}", script)
+
+
+def test_the_original_sound_has_a_switch_and_the_preview_is_not_muted():
+    html, script = read("index.html"), read("app.js")
+
+    # The Sound switch is in the Timing tab with the others, off the same markup, and it edits audio.original
+    timing = html[html.index('id="tab-timing"'):html.index('id="tab-shoot"')]
+    assert re.search(r'<button type="button" class="tog" id="tog-sound" aria-pressed="true" aria-label="Original sound">On</button>', timing)
+    assert "The clip's own sound. Off mutes it." in timing
+    assert timing.index('id="tog-shutter"') < timing.index('id="tog-sound"') < timing.index("<h2>Music</h2>")
+    assert "edit({ audio: { original: !(state.project.audio.original !== false) } }, { now: true })" in script
+    assert "['tog-sound', state.project.audio.original !== false]" in script
+    # the preview plays with its sound
+    video = re.search(r'<video id="preview-video"[^>]*>', html).group(0)
+    assert "muted" not in video
+
+
+def test_the_shooting_guide_is_two_steps():
+    html = read("index.html")
+    guide = html[html.index('id="tab-shoot"'):html.index('id="tab-results"')]
+
+    assert "Five minutes" not in guide
+    assert re.findall(r"<li>(.*?)</li>", guide) == [
+        "<b>Record one shot.</b>",
+        "<b>Hold a deadpan stare</b> for two seconds, then carry on naturally.",
+    ]
 
 
 def test_the_page_has_no_title_fields_and_no_format_switch():
@@ -173,9 +211,6 @@ def test_the_page_has_no_title_fields_and_no_format_switch():
         assert not re.search(r"Letterbox|Full screen|letterbox|fullscreen", text), name
         for gone in ("switchLayout", "format-", "dataset.layout", "data-layout", "CANVAS", "1920", ".phone"):
             assert gone not in text, (name, gone)
-    # the versions show the four notes
-    script = read("app.js")
-    assert "NOTE_KEYS.filter((note) => version.notes[note])" in script
 
 
 def test_the_preview_takes_the_shape_of_the_clip_by_its_css_and_its_script():
@@ -216,46 +251,6 @@ def test_the_page_fits_the_screen_by_its_css():
     for token in ("--bg: #0e0e11", "--card: #17171c", "--line: #2a2a31", "--text: #ecebe6", "--muted: #a09ea8",
                   "--accent: #f5df98"):
         assert token in css, token
-
-
-def without_nulls(value):
-    """A copy of a value with the keys that are null left out (what a merge patch makes of a null)."""
-    if isinstance(value, dict):
-        return {key: without_nulls(item) for key, item in value.items() if item is not None}
-    return value
-
-
-def test_picking_a_version_is_a_true_copy():
-    # The person's copy has a burst word, an emphasis word and stats. A version that has none of them (or
-    # only some) must take them away: a merge patch alone would leave them behind
-    notes = {"tl": "Creator & AI educator", "tr": "@your_handle", "bl": "But overthinks", "br": "Best friend: Clover"}
-    current = {
-        "notes": notes, "name": "Robin",
-        "extras": {"burst": "Robin!", "emphasis": "overthinks", "stats": [["AI skills", 10], ["Chill", 1], ["Sleep", 0]]},
-    }
-    other = {"notes": {**notes, "bl": "But naps"}, "name": "Pau"}
-    versions = [
-        {**other, "extras": {"burst": None, "emphasis": None, "stats": None}},  # as empty_copy writes it
-        {**other, "extras": {"burst": "Zed!"}},  # lacks the emphasis word and the stats
-        {**other, "extras": {"emphasis": "naps", "stats": [["A", 1], ["B", 2], ["C", 3]]}},
-        current,  # the same copy again
-    ]
-    script = block("merge-patch") + """
-    const done = data.versions.map((version) => applyPatch(data.current, patchBetween(data.current, version)));
-    const replaced = data.versions.map((version) => applyPatch(data.current, version));  // what picking used to do
-    console.log(JSON.stringify({ done, replaced }));
-    """
-
-    answer = run_node(script, {"current": current, "versions": versions})
-
-    for version, copy in zip(versions, answer["done"]):
-        assert copy == without_nulls(version)
-    assert answer["done"][0]["extras"] == {}  # no burst, no emphasis, no stats
-    assert answer["done"][1]["extras"] == {"burst": "Zed!"}
-    assert answer["done"][2]["extras"]["stats"] == [["A", 1], ["B", 2], ["C", 3]]
-    # and the control: a plain merge keeps what the version lacks (this is why picking did not copy)
-    assert answer["replaced"][1]["extras"]["emphasis"] == "overthinks"
-    assert answer["replaced"][1] != without_nulls(versions[1])
 
 
 def test_every_request_the_page_posts_says_it_is_json():
@@ -403,3 +398,70 @@ def test_the_page_shows_the_notice_init_left_in_the_project_and_takes_it_away():
     assert re.search(r"toast\(state\.project\.notice\)", script)
     assert "edit({ notice: null }, { now: true })" in script  # a null in a patch deletes the key
     assert re.search(r"refreshCard\(\);\s*showNotice\(\);", script)  # once, when the page opens
+
+
+def test_the_arrow_keys_step_the_freeze_only_in_still_mode():
+    # Scrubbing the preview with the arrows moved the freeze by accident: in Play mode they do nothing to it
+    script = read("app.js")
+    start = script.index("document.addEventListener('keydown', (event) => {")
+    end = script.index("\n});", start)
+    handler = script[start + len("document.addEventListener('keydown', "):end + 2]
+    assert "ArrowRight" in handler and "setFreeze" in handler
+    code = """
+    class Element {}
+    const results = {};
+    for (const mode of ['play', 'still']) {
+      const state = { mode, project: { freeze: { frame: 71 } } };
+      const nextFrame = (frame, step) => frame + step;
+      const setFreeze = (frame) => { state.project.freeze.frame = frame; };
+      const run = new Function('state', 'nextFrame', 'setFreeze', 'Element', 'return ' + HANDLER);
+      run(state, nextFrame, setFreeze, Element)({ key: 'ArrowRight', target: null, preventDefault() {} });
+      results[mode] = state.project.freeze.frame;
+    }
+    console.log(JSON.stringify(results));
+    """.replace("HANDLER", json.dumps(handler))
+    assert run_node(code, None) == {"play": 71, "still": 72}
+    assert "In Still mode, the left and right arrow keys step one frame." in script
+
+
+def test_the_style_tab_builds_one_toggle_for_each_of_the_fourteen_extras(server):
+    from mclib.styles import recipes
+
+    options = server.get("/api/options").json()
+
+    # the page makes a toggle for each id the server lists, in this order, with the server's labels
+    assert options["options"]["extras"] == [
+        "tape", "stars", "grain", "hearts", "circle", "crown", "sparkles", "motion", "confetti", "rec", "vhs",
+        "leak", "nametag", "bubble",
+    ]
+    assert [options["labels"]["extras"][key] for key in options["options"]["extras"]] == [
+        "Tape", "Stars", "Film grain", "Hearts", "Scribble circle", "Doodle crown", "Sparkles", "Motion lines",
+        "Confetti", "REC timestamp", "VHS lines", "Light leak", "Name tag", "Speech bubble",
+    ]
+    assert set(options["options"]["extras"]) == set(recipes.EXTRAS)
+    script = read("app.js")
+    assert "for (const id of options.extras)" in script and "labels.extras[id]" in script
+    assert 'id="extras"' in read("index.html")
+    # the toggles wrap, so that fourteen of them fit a 1280 x 720 window without a sideways scroll
+    assert re.search(r"\.toggles\s*\{[^}]*flex-wrap:\s*wrap", read("style.css")) or re.search(
+        r"\.opts,\s*\.chips,\s*\.toggles\s*\{[^}]*flex-wrap:\s*wrap", read("style.css")
+    )
+
+
+def test_the_bubble_field_is_in_the_lines_tab_and_shows_only_with_the_bubble_extra():
+    html, script = read("index.html"), read("app.js")
+
+    field = re.search(r'<label class="field" for="f-bubble" id="field-bubble">.*?</label>', html, re.S).group(0)
+    assert 'id="f-bubble"' in field and 'data-count="f-bubble"' in field and "Bubble text" in field
+    assert html.index('id="extras-fields"') < html.index('id="f-bubble"') < html.index('id="field-stats"')
+    # it counts against the bubble's soft limit like the notes, writes copy.extras.bubble (null when empty),
+    # and is hidden unless the style has the bubble extra on
+    assert "'f-bubble': { read: (c) => (c.extras || {}).bubble" in script and "limit: 'bubble'" in script
+    assert "{ extras: { bubble: v.trim() === '' ? null : v } }" in script
+    assert "$('#field-bubble').hidden = !bubble;" in script
+    assert "const bubble = Boolean(style.extras && style.extras.bubble);" in script
+    assert "'copy.extras.bubble': 'Bubble text'" in script
+
+
+def test_the_server_gives_the_page_the_bubble_limit(server):
+    assert server.get("/api/options").json()["soft_limits"]["bubble"] == 14

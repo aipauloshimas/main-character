@@ -8,7 +8,8 @@ description: 'Use when someone wants the "this is your sign to make an introduct
 The person brings one clip of themselves walking up to the camera. You check the setup, interview them, write
 the notes, check the card, and open a local studio where they edit, pick a style and render. In the reel, the
 clip freezes on them, the room turns into a styled card, hand-drawn notes with arrows describe them, and the
-video releases into a small smile. The skill only edits: it never makes footage, ships music or posts.
+video lets go again. The video keeps the clip's own sound, which is silent while the card is up. The skill only
+edits: it never makes footage, ships music or posts.
 
 ## How to work
 
@@ -64,11 +65,8 @@ Run the doctor again until it ends with "Everything is ready."
 A clip is one video file, 2 to 30 seconds long, with one person in it: a path in the message or a file they
 dropped. Without one, send this guide and stop:
 
-1. Shoot horizontally if possible, with the phone propped low on a table.
-2. Leave the frame empty for about a second.
-3. Walk in close to the lens.
-4. Hold a deadpan stare for two seconds, then smile.
-5. Do two or three takes.
+1. Record one shot.
+2. Hold a deadpan stare for two seconds, then carry on naturally.
 
 End with: "Run /main-character again with your best take."
 
@@ -121,7 +119,8 @@ one in `caption.txt` (step 9). Run this checklist on each version before anyone 
 - [ ] Nothing generic that could belong to anyone ("passionate creator who loves making content").
 - [ ] The extras, in every version: the burst word (the name on screen by default; keep it short), an emphasis
       word taken from the "but…" line, and three stats in game language as `[label, 0 to 10]` with short labels.
-      The confession becomes the funny stat (`["Overthinking", 10]`).
+      The confession becomes the funny stat (`["Overthinking", 10]`). `extras.bubble` (a few words, 14 characters at
+      most) is for the Speech bubble extra only; leave it `null` unless the person turned that extra on.
 - [ ] Natural case (each notes style applies its own capitals), no emojis, and within the soft limits: `tl` 30,
       `tr` 24, `bl` 34, `br` 30 and `name` 16.
 - [ ] The on-screen copy uses the Latin alphabet. Accents are fine where the font has them, and `card`'s `FLAG`
@@ -133,7 +132,8 @@ Pick the built-in style that fits the person (see "Style recipes"). Bedroom Pop,
 fallback. Comic Pop suits loud, confident or chaotic; Scrapbook, crafty and warm; Player Select, gamers and tech.
 
 Write it all in one patch: `versions` (A, B and C), `copy` (the same as A), `picked` "A", `style` (the whole
-recipe) and `style_source` (its id). One version looks like this:
+recipe) and `style_source` (its id). The studio does not show the versions: the person picks one in the chat
+(step 7), and you put it in `copy` with `patch`. One version looks like this:
 
 ```json
 {"notes": {"tl": "<what they do>", "tr": "<@handle>", "bl": "But <the confession>", "br": "<the detail>"},
@@ -185,10 +185,14 @@ so x goes up to 600 and y up to H−480, where H is the card's height:
    prints `URL http://127.0.0.1:<port>/` and serves until stopped.
 2. Run `python "<skill dir>/scripts/mc.py" wait "<project>"` in the background, before the person has the URL,
    so no click is missed. It exits on the next event: `STYLE <stamp>` (step 8) or `DONE <stamp>` (step 9).
-3. Give the person the URL and the three jokes, one line each, and how the studio works: pick a version and
-   edit any line; pick a style or build one, or describe one and press "Ask Claude"; drag a note to move it;
-   press Render when it looks right.
-4. Stop: end your turn. Don't poll.
+3. Show the person the three jokes, as versions A, B and C with all four notes of each, and ask which one they
+   want: A, B or C, or a mix of lines. Then stop: end your turn. Don't poll.
+4. When they answer, put their pick in the live copy with `patch`: `copy` is the chosen version (all of it, with
+   a `null` for each extra the version doesn't have, so nothing of the earlier copy stays) and `picked` is its
+   letter. A mix of lines is a patch of just those lines. Run `card` again if the lines changed.
+5. Give the person the URL and how the studio works: edit any line; pick a style or build one, or describe one
+   and press "Ask Claude"; drag a note to move it; the Timing tab has the Original sound switch, which mutes the
+   clip's own sound; press Render when it looks right. Then stop again.
 
 A change the person asks for in the chat goes through `patch`; then ask them to reload the page.
 
@@ -257,16 +261,17 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
    - Line two is the trend's own ("make an introduction video of yourself") or a twist that answers the
      confession.
    - Keep both lines lowercase and about 40 characters at most each. The person types them as written.
-5. Tell them where the files are, and that the video is silent and has no title: they add the trend's sound and
-   the title from `caption.txt` in Instagram or TikTok. With the default timing, the freeze lands at 2.07 s, on
+5. Tell them where the files are, and that the video keeps the clip's own sound (silent over the card, back in
+   step when the video lets go; Original sound in the Timing tab mutes it) and has no title: they add the
+   trend's sound and the title from `caption.txt` in Instagram or TikTok. With the default timing, the freeze lands at 2.07 s, on
    the sound's hit.
 6. If the studio is still open, run `wait` again with `--since "<the DONE stamp>"` in the background. When they
    are finished, stop the `serve` and `wait` background tasks.
 
 ## Style recipes
 
-A recipe has an `id` and a `name` (text), one id per layer, the three extras and a palette. Every key is
-required, and the ids are exact:
+A recipe has an `id` and a `name` (text), one id per layer, the little extras and a palette. Every key is
+required except the eleven newer extras (see below), and the ids are exact:
 
 | Layer | Ids, with the studio's labels |
 |---|---|
@@ -275,7 +280,30 @@ required, and the ids are exact:
 | `notes` | `marker` Marker, `comic` Comic boxes, `hand` Handwritten strips, `pixel` Pixel, `label` Bold labels |
 | `arrows` | `curly` Curly, `doodle` Doodle, `straight` Line + dot, `none` None |
 | `hero` | `none`, `burst` Name burst, `stats` Stats panel (it takes the handle note's place), `hud` Game HUD |
-| `extras` | `{"tape": …, "stars": …, "grain": …}`, all three, each true or false |
+| `extras` | `{"tape": …, "stars": …, "grain": …}`, each true or false, and any of the eleven newer ones below |
+
+The little extras are toggles under "Little extras" in the studio's Style tab. The eleven newer ones are off in the
+four built-ins and in a new project (the built-ins turn on only the ones in their table below). A style
+saved before the eleven newer ones, or a recipe that leaves them out, still works: they are off.
+
+| Extra | What it draws |
+|---|---|
+| `tape` Tape, `stars` Stars | tape across the notes' top corners, and outline stars beside the face |
+| `grain` Film grain | soft-light grain over the whole stage |
+| `hearts` Hearts | two or three hand-drawn outline hearts beside the head (with the arrows) |
+| `circle` Scribble circle | a loop drawn twice around the emphasis word (`copy.extras.emphasis`) where it is in a note; nothing without one (with that note) |
+| `crown` Doodle crown | an outline crown, tilted, just above the head (with the arrows); left out when the head touches the top of the picture |
+| `sparkles` Sparkles | three to five four-point sparkles near the person's outline (with the arrows) |
+| `motion` Motion lines | three short manga strokes beside the top of the head (with the arrows) |
+| `confetti` Confetti | 20 to 40 small paper rectangles and dots in the palette's colors, on the background only, from the first frame; it re-scatters a little with each boil picture |
+| `rec` REC timestamp | a red dot and "REC" in one top corner and "00:00:02" in the other, in the pixel font with a dark outline, the whole card; under the title room on a 9:16 card |
+| `vhs` VHS lines | thin scanlines over the whole stage and a 1 to 2 px red and cyan offset |
+| `leak` Light leak | a soft orange and red glow bleeding in from the side away from the head |
+| `nametag` Name tag | a "HELLO my name is" sticker with `copy.name` on the chest, just under the face; nothing without a name (with the notes) |
+| `bubble` Speech bubble | a speech bubble beside the mouth with `copy.extras.bubble` (14 characters at most, a soft limit; nothing when empty; with the arrows) |
+
+The drawn ones keep off the face, the notes, the arrows, the hero's boxes, the 9:16 title room, bottom band and
+rail, the tape, the stars and each other. One that finds no room is left out, never drawn over something.
 
 `palette` holds exactly five `#rrggbb` colors: `dark` (background dark), `light` (background light), `tex`
 (texture), `edge` (cutout edge) and `ink` (text). The seven presets:
@@ -312,8 +340,11 @@ The contrast guard: at least 3.0 (WCAG), measured where the lettering sits.
 ## Settings
 
 - `timing`: `freeze_at` 0.5 to 5.0 s (default 2.07), `hold` 1.0 to 6.0 (3.0), `head_speed` 0.75 to 1.5 (1.0),
-  `tail` 0.0 to 3.0 (1.2), `release_from` 0.0 to 1.0 (0.0; skips dead time after the freeze, to reach the
+  `tail` 0.0 to 30.0 (30.0: the rest of the clip plays to its last frame; set it lower to end sooner), `release_from` 0.0 to 1.0 (0.0; skips dead time after the freeze, to reach the
   smile), `reveal` "staggered" or "all", `boil` and `shutter` true or false.
+- `audio.original`: true (the default) keeps the clip's own sound in the video, silent over the card and back in
+  step with the picture when the video lets go; false mutes it. `audio.track` is the person's music, which
+  only the `-with-music` file has.
 - `freeze.frame`: a frame of the clip, from 0. `matte.edge`: a whole number from -4 to 4 (below 0 shrinks the
   cutout, above 0 softens it).
 

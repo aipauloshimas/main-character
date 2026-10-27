@@ -2,7 +2,7 @@
 the render owes the quality of the clip (its frame rate, one lossy encode, its bitrate, its size, the notes).
 
 The fake project (conftest) is a 4 s, 30 fps clip of 1920x1080 frozen on frame 60, so a default render
-is 188 frames: 2 of the first frame held, 60 of clip, 90 of card and 36 of tail. Its video is the clip's
+is 212 frames: 2 of the first frame held, 60 of clip, 90 of card and 60 of tail (the rest of the clip). Its video is the clip's
 own frame, 1920x1080, with nothing around it (a preview is at the plan's size, 1080x608). Several tests
 look at one render of it, made once (rendered). The others change something first and render again,
 usually with a short timeline (small) because a render is the slow part of a test.
@@ -230,19 +230,20 @@ def small_final(tmp_path_factory, project_maker, fake_matte):
 def test_render_frame_count_and_size(rendered):
     result, folder, project, _ = rendered
 
-    assert media.count_frames(result.video) == 188  # 2 held + 60 of clip + 90 of card + 36 of tail
+    assert media.count_frames(result.video) == 212  # 2 held + 60 of clip + 90 of card + 60 of tail (the rest of the clip)
     info = media.probe(result.video)
     assert (info["width"], info["height"], info["fps"]) == (1920, 1080, 30.0)  # the clip's own frame
-    assert result.frames == 188
+    assert result.frames == 212
     assert result.video == folder.resolve() / "renders" / "synthetic-main-character.mp4"
     assert result.freeze_out == pytest.approx(62 / 30)
     assert result.release_out == pytest.approx(152 / 30)
     assert (result.warning, result.notes, result.with_music) == (None, [], None)
 
-    # H.264 in yuv420p, with no sound, tagged BT.709 limited range, and nothing left in _work
+    # H.264 in yuv420p, with the clip's own sound (see the tests of the sound), tagged BT.709 limited range,
+    # and nothing left in _work
     assert [(s["codec_name"], s["pix_fmt"]) for s in ffprobe(result.video, "codec_name,pix_fmt")] == [
         ("h264", "yuv420p")]
-    assert ffprobe(result.video, "codec_type", stream="a") == []
+    assert [s["codec_name"] for s in ffprobe(result.video, "codec_name", stream="a")] == ["aac"]
     assert color_tags(result.video) == {"stream": BT709, "frame": BT709}
     assert not (folder / "renders" / "_work").exists()
 
@@ -282,7 +283,7 @@ def test_render_preview_is_at_the_plans_size(fake_project):
     # the plan's size, 1080x608, made fast (and no cutout at the video's size: it needs no model)
     info = media.probe(result.video)
     assert (info["width"], info["height"], info["fps"]) == (1080, 608, 30.0)
-    assert info["frames"] == result.frames == 188
+    assert info["frames"] == result.frames == 212
     assert result.video == folder.resolve() / "renders" / "preview.mp4"
     assert (result.cover, result.with_music) == (None, None)
     # Nothing but the preview is written, and the project is not touched: no status, no rendered_at
@@ -318,12 +319,13 @@ def test_render_with_music_and_shutter(fake_project, fake_matte, tmp_path):
     folder, project = fake_project
     project["audio"]["track"] = str(sine_track(tmp_path / "track.wav", seconds=5))
     project["timing"]["shutter"] = True
+    project["audio"]["original"] = False  # (the clip's own sound is tested apart: here the video has the click alone)
     project_file.save(folder, project)
 
     result = render.render(folder, matte_runner=fake_matte())
 
     assert result.with_music == folder.resolve() / "renders" / "synthetic-with-music.mp4"
-    assert result.frames == 188 and media.count_frames(result.with_music) == 188
+    assert result.frames == 212 and media.count_frames(result.with_music) == 212
     assert project_file.load(folder)["status"]["outputs"] == [
         "renders/synthetic-main-character.mp4", "renders/synthetic-with-music.mp4",
         "renders/synthetic-cover.png"]
@@ -338,7 +340,7 @@ def test_render_with_music_and_shutter(fake_project, fake_matte, tmp_path):
     # and the music version has the track too (a 440 Hz sine, faded out at the end), the click on top
     (audio,) = ffprobe(result.with_music, "codec_name,duration", stream="a")
     assert audio["codec_name"] == "aac"
-    assert float(audio["duration"]) == pytest.approx(188 / 30, abs=0.1)
+    assert float(audio["duration"]) == pytest.approx(212 / 30, abs=0.1)
     music = mono_samples(result.with_music)
     assert 0.05 < rms(music, 0.2, 0.4) < 0.12 and peak(music, 0.2, 0.4) < 0.2  # the sine, 1/8 of full scale
     assert peak(music, 2.06, 2.19) > 0.5  # and the click over it
@@ -351,6 +353,132 @@ def test_render_with_music_and_shutter(fake_project, fake_matte, tmp_path):
     assert means[1] == pytest.approx(0.85 + 0.15 * plain, abs=0.03), means
     assert means[2] == pytest.approx(0.40 + 0.60 * plain, abs=0.03), means
     assert means[0] < means[2] - 0.15, means
+
+
+# --- the clip's own sound -------------------------------------------------------------------
+
+
+def audio_duration(path):
+    """The length of a file's sound in seconds, as its audio stream states it."""
+    (stream,) = ffprobe(path, "duration", stream="a")
+    return float(stream["duration"])
+
+
+def test_the_video_keeps_the_clips_own_sound_and_the_card_is_silent(rendered):
+    result, *_ = rendered
+
+    # one sound as long as the video (212 frames, 7.07 s), within a frame
+    assert audio_duration(result.video) == pytest.approx(212 / 30, abs=1 / 30)
+    sound = mono_samples(result.video)
+    tone = 0.125 / 2 ** 0.5  # the clip's sine is at 1/8 of full scale, so this is its rms
+    # the head (the clip from 0 to 2.0 s, after 2 frames of the held first frame) and the tail (the clip
+    # from 2.0 s on, after the card) are the clip's sound, and the card (2.07 s to 5.07 s) is silent
+    assert rms(sound, 0.3, 1.9) == pytest.approx(tone, rel=0.2)
+    assert rms(sound, 2.2, 4.9) < 0.001
+    assert rms(sound, 5.2, 6.7) == pytest.approx(tone, rel=0.2)
+    assert rms(sound, 6.9, 7.05) < 0.5 * tone  # and it fades out with the video
+
+
+def test_the_video_has_no_sound_when_the_original_is_off(fake_project, fake_matte):
+    folder, project = fake_project
+    small(folder, project)
+    project["audio"]["original"] = False  # and no shutter click, and no track: nothing to hear
+    project["timing"]["shutter"] = False
+    project_file.save(folder, project)
+
+    result = render.render(folder, matte_runner=fake_matte())
+
+    assert ffprobe(result.video, "codec_type", stream="a") == []
+    assert media.count_frames(result.video) == 45
+
+
+def test_the_shutter_click_is_heard_over_the_clips_sound(fake_project, fake_matte):
+    folder, project = fake_project
+    small(folder, project)
+    project["timing"]["shutter"] = True
+    project_file.save(folder, project)
+
+    result = render.render(folder, matte_runner=fake_matte())
+
+    sound = mono_samples(result.video)
+    assert audio_duration(result.video) == pytest.approx(45 / 30, abs=1 / 30)
+    assert rms(sound, 0.1, 0.45) > 0.05  # the clip's sound in the head
+    assert peak(sound, 0.5, 0.62) > 0.5  # the click, on the freeze (15 frames in, 0.5 s)
+    assert rms(sound, 0.8, 1.4) < 0.001  # and the rest of the card is silent
+
+    # With the original off, the click is all there is
+    project["audio"]["original"] = False
+    project_file.save(folder, project)
+    only = render.render(folder, matte_runner=fake_matte())
+    alone = mono_samples(only.video)
+    assert peak(alone, 0.5, 0.62) > 0.5 and rms(alone, 0.1, 0.45) < 0.001
+
+
+def test_a_preview_has_the_clips_sound_too(fake_project):
+    folder, project = fake_project
+    small(folder, project)
+
+    result = render.render(folder, preview=True)
+
+    assert audio_duration(result.video) == pytest.approx(45 / 30, abs=1 / 30)
+    sound = mono_samples(result.video)
+    assert rms(sound, 0.1, 0.45) > 0.05 and rms(sound, 0.8, 1.4) < 0.001
+
+    # and with the original off it is silent again, as a preview was before the clip kept its sound
+    project["audio"]["original"] = False
+    project_file.save(folder, project)
+    assert ffprobe(render.render(folder, preview=True).video, "codec_type", stream="a") == []
+
+
+def test_a_clip_without_sound_renders_as_it_did(tmp_path, project_maker, synthetic_clip, fake_matte):
+    silent = tmp_path / "silent.mp4"
+    media.run(["-i", str(synthetic_clip), "-an", "-c:v", "copy", str(silent)])
+    folder, project = project_maker(tmp_path, clip=silent)
+    small(folder, project)
+
+    result = render.render(folder, matte_runner=fake_matte())
+    preview = render.render(folder, preview=True)
+
+    assert ffprobe(result.video, "codec_type", stream="a") == []
+    assert ffprobe(preview.video, "codec_type", stream="a") == []
+    assert media.count_frames(result.video) == 45
+
+    # with a shutter click it has the click alone, as before
+    project["timing"]["shutter"] = True
+    project_file.save(folder, project)
+    clicked = mono_samples(render.render(folder, matte_runner=fake_matte()).video)
+    assert peak(clicked, 0.5, 0.62) > 0.5 and rms(clicked, 0.1, 0.45) < 0.001
+
+
+def test_the_head_at_a_speed_has_sound_as_long_as_its_picture(fake_project, fake_matte):
+    folder, project = fake_project
+    small(folder, project)
+    project["timing"]["head_speed"] = 1.43
+    project_file.save(folder, project)
+
+    result = render.render(folder, matte_runner=fake_matte())
+
+    frames = media.count_frames(result.video)
+    assert audio_duration(result.video) == pytest.approx(frames / 30, abs=1 / 30)
+    sound = mono_samples(result.video)
+    assert rms(sound, 0.1, result.freeze_out - 0.05) > 0.05  # the head's sound, sped up
+    assert rms(sound, result.freeze_out + 0.1, frames / 30 - 0.05) < 0.001  # and the card is silent
+
+
+def test_the_with_music_file_has_the_music_and_not_the_clips_sound(fake_project, fake_matte, tmp_path):
+    folder, project = fake_project
+    small(folder, project)
+    project["audio"]["track"] = str(track_with_hits(tmp_path / "hits.wav", [1.2], seconds=4))
+    project["audio"]["onsets"] = [1.2]
+    project["timing"]["shutter"] = False
+    project_file.save(folder, project)
+
+    result = render.render(folder, matte_runner=fake_matte())
+
+    music = mono_samples(result.with_music)
+    assert rms(music, 0.1, 0.45) < 0.001  # the track is silent here, and the clip's sound is not in this file
+    video = mono_samples(result.video)
+    assert rms(video, 0.1, 0.45) > 0.05  # while the finished video has it
 
 
 def test_render_warning_passes_through(fake_project, fake_matte):
@@ -373,22 +501,22 @@ def test_timeline_for_follows_the_clips_rate(fake_project):
     folder, project = fake_project
     plan = render.timeline_for(project)
     assert [(s.kind, s.frames) for s in plan.segments] == [
-        ("fill", 2), ("clip", 60), ("card", 90), ("clip", 36)]
-    assert plan.total_frames == 188
+        ("fill", 2), ("clip", 60), ("card", 90), ("clip", 60)]
+    assert plan.total_frames == 212
 
-    # The same project on a 24 fps clip: the freeze frame is a time of 2.5 s, and everything is
-    # counted in 24ths of a second
+    # The same project on a 24 fps clip: the freeze frame is a time of 2.0 s, everything is counted
+    # in 24ths of a second, and the tail is the 2.0 s of clip left
     project["clip"]["fps"] = 24.0
     project["freeze"]["frame"] = 48
     plan = render.timeline_for(project)
     assert [(s.kind, s.frames) for s in plan.segments] == [
-        ("fill", 2), ("clip", 48), ("card", 72), ("clip", 28)]
+        ("fill", 2), ("clip", 48), ("card", 72), ("clip", 48)]
     assert plan.freeze_out == pytest.approx(50 / 24)
 
     # and at 23.976, which is 24000/1001 and not 24: the freeze frame is 2.002 s into the clip
     project["clip"]["fps"] = float(Fraction(24000, 1001))
     plan = render.timeline_for(project)
-    assert [segment.frames for segment in plan.segments] == [2, 48, 72, 28]
+    assert [segment.frames for segment in plan.segments] == [2, 48, 72, 48]
     assert plan.freeze_out == pytest.approx(50 * 1001 / 24000)
 
 
@@ -466,9 +594,9 @@ def test_render_follows_a_24_fps_clip(tmp_path, project_maker, synthetic_clip_24
 
     result = render.render(folder, matte_runner=fake_matte())
 
-    # The rate stays 24, and the length is the plan's at 24: 2 held + 48 of clip + 24 of card + 28 of tail
+    # The rate stays 24, and the length is the plan's at 24: 2 held + 48 of clip + 24 of card + 48 of tail
     assert [s["r_frame_rate"] for s in ffprobe(result.video, "r_frame_rate")] == ["24/1"]
-    assert result.frames == media.count_frames(result.video) == 102
+    assert result.frames == media.count_frames(result.video) == 122
     assert result.freeze_out == pytest.approx(50 / 24) and result.release_out == pytest.approx(74 / 24)
     assert result.video.name == "synthetic24-main-character.mp4"
     assert color_tags(result.video) == {"stream": BT709, "frame": BT709}
@@ -495,36 +623,56 @@ def test_render_follows_a_24_fps_clip(tmp_path, project_maker, synthetic_clip_24
         assert min(gaps, key=gaps.get) == shown, (card_frame, gaps)
 
 
+def final_join(calls):
+    """The second pass of the join (the encode that writes the video), and its first pass."""
+    passes = [args for args in calls if "libx264" in args and "-qp" not in args]
+    first = [args for args in passes if args[args.index("-pass") + 1] == "1"]
+    second = [args for args in passes if args[args.index("-pass") + 1] == "2"]
+    assert len(first) == len(second) == 1
+    return second[0], first[0]
+
+
 def test_final_render_encodes_once_at_the_clips_bitrate(rendered, small_final):
-    # The parts are lossless intermediates, and exactly one encode is not
+    # The parts are lossless intermediates, and exactly one encode is not: the join, in two passes.
+    # A single pass at an average bitrate spends the budget as it goes and can leave the end of
+    # the video starved (a real intro: 2.6 Mbps for the last second of a 10.7 Mbps clip), so a
+    # first pass reads the whole video and the second spreads the bits where the picture needs them.
     for calls, parts in ((rendered.calls, 4), (small_final[0].calls, 2)):
         encodes = [args for args in calls if "libx264" in args]
         lossless = [args for args in encodes if "-qp" in args]
-        lossy = [args for args in encodes if "-qp" not in args]
-        assert len(lossless) == parts and len(lossy) == 1
+        assert len(lossless) == parts and len(encodes) == parts + 2
         assert not any("-crf" in args for args in encodes)
         for args in lossless:  # the parts: quantizer 0, the fastest preset
             assert args[args.index("-qp") + 1] == "0"
             assert args[args.index("-preset") + 1] == "ultrafast"
-        (join,) = lossy  # and the join is the one that is not
-        assert join[join.index("-f") + 1] == "concat"
-        assert join[join.index("-preset") + 1] == "medium"
+        join, first = final_join(calls)  # and the join is the one that is not
+        for args in (join, first):
+            assert args[args.index("-f") + 1] == "concat"
+            assert args[args.index("-preset") + 1] == "medium"
+            assert args[args.index("-passlogfile") + 1] == join[join.index("-passlogfile") + 1]
+        assert first[-1] == os.devnull and first[first.index("-f", first.index("-pass")) + 1] == "null"
         assert "colour_primaries=1" in join[join.index("-bsf:v") + 1]  # the BT.709 tags
+        # and the card, a still with grain, gets a quarter of its share, so the footage has the bits
+        zones = {args[args.index("-x264-params") + 1] for args in (join, first)}
+        (zone,) = zones
+        start, end, weight = zone.removeprefix("zones=").split(",")
+        assert weight == f"b={media.STILL_WEIGHT}" and 0 < int(start) < int(end)
 
-    # The fake project has no bitrate of its clip, so it is the floor of 10 Mbps
-    (join,) = [args for args in rendered.calls if "libx264" in args and "-qp" not in args]
-    assert [join[join.index(key) + 1] for key in ("-b:v", "-maxrate", "-bufsize")] == [
-        "10000000", "15000000", "20000000"]
+    # The fake project has no bitrate of its clip, so it is the floor of 10 Mbps, in both passes
+    join, first = final_join(rendered.calls)
+    for args in (join, first):
+        assert [args[args.index(key) + 1] for key in ("-b:v", "-maxrate", "-bufsize")] == [
+            "10000000", "15000000", "20000000"]
 
     # and a clip of 20 Mbps gets 20 Mbps, with a ceiling of 30 and a buffer of 40
-    (join,) = [args for args in small_final[0].calls if "libx264" in args and "-qp" not in args]
+    join, _ = final_join(small_final[0].calls)
     assert [join[join.index(key) + 1] for key in ("-b:v", "-maxrate", "-bufsize")] == [
         "20000000", "30000000", "40000000"]
 
     # That is what the finished file says about itself too, and it is still BT.709
     options = x264_options(small_final[0].result.video)
     assert {key: options[key] for key in ("rc", "bitrate", "vbv_maxrate", "vbv_bufsize")} == {
-        "rc": "abr", "bitrate": "20000", "vbv_maxrate": "30000", "vbv_bufsize": "40000"}
+        "rc": "2pass", "bitrate": "20000", "vbv_maxrate": "30000", "vbv_bufsize": "40000"}
     assert color_tags(small_final[0].result.video) == {"stream": BT709, "frame": BT709}
 
 

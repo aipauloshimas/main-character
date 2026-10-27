@@ -41,7 +41,7 @@ from ..layout import (
 )
 from ..raster import IDENTITY, Scale, grain, over, screen
 from ..project import NOTE_KEYS
-from . import background, edges, notes
+from . import background, edges, extras, notes
 from .recipes import unavailable
 
 _SATURATION = 1.08  # the person's colors are pushed this far from gray, to stand out of the room
@@ -63,7 +63,9 @@ def compose_stage(
     2. The layers of the edge, under the person, each over the one before or screened.
     3. The person: the frame's pixels with their saturation raised by 8%, around the mean of
        the three channels, composited by alpha over the edge.
-    4. With extras.grain, soft-light grain over everything: gray noise of 9 levels, strongest in
+    4. With extras.vhs and extras.leak, the scanlines and channel offset and then the light leak
+       (extras.stage_effects).
+    5. With extras.grain, soft-light grain over everything: gray noise of 9 levels, strongest in
        the midtones and nothing in pure black or white. It uses the same seed as the background's
        own grain, which only makes the film grain a little stronger, never a pattern.
     """
@@ -76,6 +78,8 @@ def compose_stage(
     mean = rgb.mean(axis=-1, keepdims=True)
     person = np.clip(mean + (rgb - mean) * _SATURATION, 0.0, 1.0)
     img = np.clip(over(img, person, alpha), 0.0, 1.0)
+
+    img = extras.stage_effects(recipe, img, head, scale)
 
     if recipe["extras"]["grain"]:
         noise = grain(np.zeros(img.shape[:2], np.float32), _FILM_GRAIN, variant, scale.noise_shape(img.shape))
@@ -442,6 +446,8 @@ def draw_overlay(
     face: tuple[int, int, int, int] | None = None,
     keepout: tuple[tuple[int, int, int, int], ...] = (),
     scale: Scale = IDENTITY,
+    person: np.ndarray | None = None,
+    variant: int = 0,
 ) -> None:
     """Draw the arrows, the notes, the hero and the extras onto an RGBA image the size of the
     stage, in place. layout is style_layout's, `visible` the groups on now (a set of "bottom",
@@ -451,8 +457,12 @@ def draw_overlay(
     do, so that a star or a piece of tape never lands on the title room.
 
     The layout, the face and the keep-out boxes are the ones made at the plan, whatever the size of
-    the image: scale says how much bigger than the plan it is, and the drawing scales them."""
+    the image: scale says how much bigger than the plan it is, and the drawing scales them. person is
+    the plan's mask of the person (MatteContext.person) and variant the boil picture: the new extras
+    (hearts, crown, confetti and the rest, see styles.extras) keep off the person and the confetti
+    follows the boil. Without a person those extras that need one are left out."""
     notes.draw_arrows(img, layout, recipe, visible, scale)
     notes.draw_notes(img, layout, copy, recipe, visible, scale)
     notes.draw_hero(img, layout, copy, recipe, visible, scale)
     notes.draw_extras(img, layout, recipe, visible, face, keepout, scale)
+    extras.draw(img, layout, recipe, copy, visible, face, keepout, scale, person, variant)

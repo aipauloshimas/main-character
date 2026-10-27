@@ -2,11 +2,11 @@
 person saves.
 
 A recipe is a dict with an id, a name, one option id for each of the layers bg, edge, notes, arrows
-and hero, the little extras (tape, stars and grain, each on or off) and a palette of five colors:
+and hero, the little extras (the 14 of EXTRAS, each on or off) and a palette of five colors:
 
     {"id": "bedroom-pop", "name": "Bedroom Pop", "bg": "dots", "edge": "handcut",
      "notes": "marker", "arrows": "curly", "hero": "none",
-     "extras": {"tape": False, "stars": False, "grain": True},
+     "extras": {"tape": False, "stars": False, "grain": True, "hearts": False, ...},
      "palette": {"dark": "#7d2a72", "light": "#f2a9de", "tex": "#4c0f45", "edge": "#f5df98",
                  "ink": "#f7e8b0"}}
 
@@ -27,7 +27,14 @@ from ..config import mc_home
 from ..fileio import retry_locked
 
 ROLES = ("dark", "light", "tex", "edge", "ink")  # what the five colors of a palette are for
-EXTRAS = ("tape", "stars", "grain")
+# The little extras, in the order the page shows them: the three the skill began with, then the eleven
+# that came after. A recipe saved before those eleven has only the first three (see EXTRAS_FIRST), and
+# complete() gives it the rest, all off.
+EXTRAS_FIRST = ("tape", "stars", "grain")
+EXTRAS = (
+    *EXTRAS_FIRST, "hearts", "circle", "crown", "sparkles", "motion", "confetti", "rec", "vhs", "leak",
+    "nametag", "bubble",
+)
 LAYERS = ("bg", "edge", "notes", "arrows", "hero")  # the layers that take exactly one option
 _RECIPE_KEYS = ("id", "name", *LAYERS, "extras", "palette")
 
@@ -67,7 +74,22 @@ LABELS: dict[str, dict[str, str]] = {
     },
     "arrows": {"curly": "Curly", "doodle": "Doodle", "straight": "Line + dot", "none": "None"},
     "hero": {"none": "None", "burst": "Name burst", "stats": "Stats panel", "hud": "Game HUD"},
-    "extras": {"tape": "Tape", "stars": "Stars", "grain": "Film grain"},
+    "extras": {
+        "tape": "Tape",
+        "stars": "Stars",
+        "grain": "Film grain",
+        "hearts": "Hearts",
+        "circle": "Scribble circle",
+        "crown": "Doodle crown",
+        "sparkles": "Sparkles",
+        "motion": "Motion lines",
+        "confetti": "Confetti",
+        "rec": "REC timestamp",
+        "vhs": "VHS lines",
+        "leak": "Light leak",
+        "nametag": "Name tag",
+        "bubble": "Speech bubble",
+    },
 }
 
 # The seven presets, each as {role: "#rrggbb"}.
@@ -95,7 +117,7 @@ def _builtin(recipe_id, name, bg, edge, notes, arrows, hero, extras, palette) ->
         "notes": notes,
         "arrows": arrows,
         "hero": hero,
-        "extras": {key: key in extras for key in EXTRAS},
+        "extras": {key: key in extras for key in EXTRAS},  # (the ones that are on; all the new ones are off)
         "palette": dict(PALETTES[palette]),
     }
 
@@ -119,8 +141,10 @@ def validate_recipe(recipe) -> None:
     """Raise ValueError, naming the layer or field, unless `recipe` is a whole, valid recipe.
 
     It needs every key, a name that is not empty, an option id of its layer for each of bg, edge,
-    notes, arrows and hero, exactly the extras tape, stars and grain as true or false, and exactly
-    the five palette roles as "#rrggbb" colors (in any case). Other keys are left alone.
+    notes, arrows and hero, the extras tape, stars and grain as true or false (and the eleven that
+    came after them as true or false when they are there: a recipe from before them is still a recipe,
+    see complete), and exactly the five palette roles as "#rrggbb" colors (in any case). Other keys
+    are left alone.
     """
     if not isinstance(recipe, dict):
         raise ValueError("style must be a recipe object")
@@ -143,12 +167,29 @@ def _check_name(name) -> None:
 
 
 def _check_extras(extras) -> None:
-    wanted = ", ".join(EXTRAS)
-    if not isinstance(extras, dict) or set(extras) != set(EXTRAS):
-        raise ValueError(f"extras must have exactly {wanted}, each true or false, got {extras!r}")
-    for key in EXTRAS:
+    wanted = ", ".join(EXTRAS_FIRST)
+    if (
+        not isinstance(extras, dict)
+        or not set(EXTRAS_FIRST) <= set(extras)
+        or not set(extras) <= set(EXTRAS)
+    ):
+        raise ValueError(
+            f"extras must have {wanted}, and may have {', '.join(EXTRAS[len(EXTRAS_FIRST):])}, "
+            f"each true or false, got {extras!r}"
+        )
+    for key in extras:
         if not isinstance(extras[key], bool):
             raise ValueError(f"extras.{key} must be true or false, got {extras[key]!r}")
+
+
+def complete(recipe):
+    """The recipe with every extra of EXTRAS in it: the ones a recipe saved before them lacks are
+    off. The recipe handed in is not changed, and anything that is not a recipe with an extras object
+    (which validate_recipe will refuse, saying why) comes back as it is."""
+    extras = recipe.get("extras") if isinstance(recipe, dict) else None
+    if not isinstance(extras, dict) or all(key in extras for key in EXTRAS):
+        return recipe
+    return {**recipe, "extras": {**{key: False for key in EXTRAS if key not in extras}, **extras}}
 
 
 def _check_palette(palette) -> None:
@@ -233,7 +274,7 @@ def save_user_style(recipe: dict, name: str) -> dict:
     _check_name(name)
     folder = user_dir()
     slug = _slug(name) if re.search(r"[a-z0-9]", name.lower()) else _own_slug(folder, name)
-    stored = deepcopy(recipe)
+    stored = deepcopy(complete(recipe))
     stored["id"], stored["name"] = f"u-{slug}", name
     validate_recipe(stored)
 
@@ -273,7 +314,7 @@ def _user_styles() -> list[dict]:
         except (OSError, ValueError) as error:  # json.JSONDecodeError is a ValueError
             warnings.warn(f"Skipped the saved style {path.name}: {error}", UserWarning, stacklevel=3)
             continue
-        found.append(_entry(data["id"], data["name"], False, data["recipe"]))
+        found.append(_entry(data["id"], data["name"], False, complete(data["recipe"])))
     return found
 
 

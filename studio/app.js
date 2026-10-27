@@ -11,7 +11,6 @@
 const DEBOUNCE_MS = 400;
 const PLAN_WIDTH = 1080; // the width the card is drawn at, whatever the clip's shape (config.PLAN_WIDTH): its height is the clip's shape
 const NOTE_KEYS = ['tl', 'tr', 'bl', 'br'];
-const VERSION_KEYS = ['A', 'B', 'C'];
 const FRAME_STEP = 3; // the filmstrip shows every third frame
 const CARD_KEYS = ['copy', 'positions', 'freeze', 'matte', 'style']; // what a patch has to touch to change the card
 const GALLERY_KEYS = ['copy', 'positions', 'freeze', 'matte']; // and the cards of the gallery (not the style: each draws its own)
@@ -24,7 +23,8 @@ const TIMING_ROWS = [
   { key: 'hold', label: 'Hold', unit: ' s', step: 0.1, digits: 1, hint: 'How long the card stays on screen.' },
   { key: 'head_speed', label: 'Head speed', unit: 'x', step: 0.05, digits: 2,
     hint: 'How fast the clip plays before the freeze. 1x is normal speed.' },
-  { key: 'tail', label: 'Tail', unit: ' s', step: 0.1, digits: 1, hint: 'How much of the clip plays after the card.' },
+  { key: 'tail', label: 'Tail', unit: ' s', step: 0.1, digits: 1,
+    hint: 'How much of the clip plays after the card. All the way right plays it to the end.' },
   { key: 'release_from', label: 'Release from', unit: ' s', step: 0.05, digits: 2,
     hint: 'Skips ahead after the freeze frame, up to 1 s, before the clip goes on.' },
 ];
@@ -34,6 +34,7 @@ const TEXT_FIELDS = {
   'f-bl': { read: (c) => c.notes.bl, write: (v) => ({ notes: { bl: v } }), limit: 'bl' },
   'f-br': { read: (c) => c.notes.br, write: (v) => ({ notes: { br: v } }), limit: 'br' },
   'f-name': { read: (c) => c.name, write: (v) => ({ name: v }), limit: 'name' },
+  'f-bubble': { read: (c) => (c.extras || {}).bubble, write: (v) => ({ extras: { bubble: v.trim() === '' ? null : v } }), limit: 'bubble' },
 };
 
 /* ---------- small helpers ---------- */
@@ -82,18 +83,6 @@ function joinPatches(first, second) {
     out[key] = isObject(value) && isObject(out[key]) ? joinPatches(out[key], value) : clone(value);
   }
   return out;
-}
-
-/** A merge patch that turns `from` into `to`: what `to` has is set, and what only `from` has is deleted (a null). A patch
-    of `to` alone would leave behind what `from` has and `to` lacks. */
-function patchBetween(from, to) {
-  if (!isObject(from) || !isObject(to)) return clone(to);
-  const patch = {};
-  for (const key of Object.keys(from)) {
-    if (!(key in to)) patch[key] = null;
-  }
-  for (const [key, value] of Object.entries(to)) patch[key] = patchBetween(from[key], value);
-  return patch;
 }
 
 /* merge-patch:end */
@@ -202,7 +191,7 @@ function toast(message, kind = '') {
 const FIELD_NAMES = {
   'copy.notes.tl': 'What you do', 'copy.notes.tr': 'Handle', 'copy.notes.bl': "Your 'but…'", 'copy.notes.br': 'Oddly specific detail',
   'copy.name': 'Name on screen',
-  'copy.extras.burst': 'Burst word', 'copy.extras.emphasis': 'Emphasis word',
+  'copy.extras.burst': 'Burst word', 'copy.extras.emphasis': 'Emphasis word', 'copy.extras.bubble': 'Bubble text',
 };
 
 /** A warning of the server in the person's words. The ones about a version (versions.C.notes.tl...) say again what the
@@ -529,7 +518,7 @@ function paintFreeze(scroll) {
   const frame = freeze.frame;
   const seconds = clip.fps ? (frame / clip.fps).toFixed(2) : '?';
   $('#freeze-info').textContent = `Frame ${frame} of ${frameCount()} · ${seconds} s`;
-  $('#freeze-info').title = `The card freezes on frame ${frame}, ${seconds} s into the clip. The left and right arrow keys step one frame.`;
+  $('#freeze-info').title = `The card freezes on frame ${frame}, ${seconds} s into the clip. In Still mode, the left and right arrow keys step one frame.`;
   const here = Math.floor(frame / FRAME_STEP) * FRAME_STEP;
   for (const button of $$('#filmstrip .frame')) {
     const on = Number(button.dataset.frame) === here;
@@ -549,6 +538,7 @@ function paintFreeze(scroll) {
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
   if (event.ctrlKey || event.metaKey || event.altKey || !state.project) return;
+  if (state.mode === 'play') return; // scrubbing the preview must not move the freeze
   if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable], .handle, .tabs, video')) return;
   event.preventDefault();
   const next = nextFrame(state.project.freeze.frame, event.key === 'ArrowRight' ? 1 : -1);
@@ -589,42 +579,9 @@ function wireTabs() {
 
 /* ---------- Lines ---------- */
 
-const emptyCopy = (copy) => !NOTE_KEYS.some((key) => copy.notes[key]);
-
-function paintVersions() {
-  const { versions, picked } = state.project;
-  const box = $('#versions');
-  box.replaceChildren();
-  for (const key of VERSION_KEYS) {
-    const version = versions[key];
-    const used = picked === key;
-    const empty = !version || emptyCopy(version);
-    const body = empty
-      ? [el('span', { class: 'ver-empty', text: 'Nothing written yet.' })]
-      : [el('span', { class: 'ver-notes' }, ...NOTE_KEYS.filter((note) => version.notes[note]).map((note) => el('span', { class: 'line', text: version.notes[note] })))];
-    const card = el('button', { type: 'button', class: 'ver', 'data-version': key, 'aria-pressed': String(used), disabled: empty },
-      el('span', { class: 'ver-head' }, el('span', { text: `Version ${key}` }), used ? el('span', { class: 'ver-badge', text: 'In use' }) : null),
-      ...body);
-    card.addEventListener('click', () => pickVersion(key));
-    box.append(card);
-  }
-}
-
-/** Use a version: its lines are copied into the live copy, and every field stays editable. It is a true copy: what the
-    version does not have (a burst word, an emphasis word, stats) is taken away from the copy, not left from the version
-    before. */
-function pickVersion(key) {
-  const version = state.project.versions[key];
-  if (!version || emptyCopy(version)) return;
-  edit({ copy: patchBetween(state.project.copy, version), picked: key }, { now: true });
-  paintLines({ keepFocus: false });
-}
-
-/** Change the live copy; and the version in use, so that its card shows the edit and picking it again brings it back. */
+/** Change the live copy. */
 function editCopy(change) {
-  const patch = { copy: change };
-  if (state.project.picked) patch.versions = { [state.project.picked]: clone(change) };
-  edit(patch);
+  edit({ copy: change });
 }
 
 function paintLines({ keepFocus = true } = {}) {
@@ -644,10 +601,12 @@ function paintLines({ keepFocus = true } = {}) {
   const burst = style.hero === 'burst';
   const emphasis = style.notes === 'hand';
   const stats = style.hero === 'stats';
+  const bubble = Boolean(style.extras && style.extras.bubble);
   $('#field-burst').hidden = !burst;
-  $('#field-emphasis').hidden = !emphasis;
+  $('#field-emphasis').hidden = !(emphasis || (style.extras && style.extras.circle));
   $('#field-stats').hidden = !stats;
-  $('#extras-fields').hidden = !(burst || emphasis || stats);
+  $('#field-bubble').hidden = !bubble;
+  $('#extras-fields').hidden = !(burst || emphasis || stats || bubble || (style.extras && style.extras.circle));
   $('#f-burst').placeholder = copy.name ? `${copy.name}!` : '';
   setValue('#f-burst', extras.burst ?? '', keepFocus);
   setValue('#f-emphasis', extras.emphasis ?? '', keepFocus);
@@ -656,7 +615,6 @@ function paintLines({ keepFocus = true } = {}) {
     setValue(`#f-stat${index}-label`, label, keepFocus);
     setValue(`#f-stat${index}-value`, String(value), keepFocus);
   });
-  paintVersions();
 }
 
 /** The stats the card draws when the copy has none: the first words of three notes. */
@@ -1008,8 +966,10 @@ function buildTiming() {
     const input = el('input', { type: 'range', id: `t-${row.key}`, min: low, max: high, step: row.step, 'aria-label': row.label });
     const value = el('output', { class: 'value', for: input.id });
     input.addEventListener('input', () => {
-      value.textContent = format(row, Number(input.value));
-      edit({ timing: { [row.key]: Number(input.value) } });
+      // the tail all the way right is the clip's end, kept as the longest tail so it stays the end when the freeze moves
+      const atEnd = row.key === 'tail' && Number(input.value) >= Number(input.max);
+      value.textContent = atEnd ? TO_THE_END : format(row, Number(input.value));
+      edit({ timing: { [row.key]: atEnd ? high : Number(input.value) } });
     });
     $('#timing-sliders').append(el('div', { class: 'trow' }, el('label', { class: 'label', for: input.id, text: row.label }), input, value, el('span', { class: 'hint', text: row.hint })));
   }
@@ -1019,19 +979,37 @@ function buildTiming() {
   for (const [id, key] of [['tog-boil', 'boil'], ['tog-shutter', 'shutter']]) {
     $('#' + id).addEventListener('click', () => edit({ timing: { [key]: !state.project.timing[key] } }, { now: true }));
   }
+  // the clip's own sound is a setting of the audio, not of the timing
+  $('#tog-sound').addEventListener('click', () => edit({ audio: { original: !(state.project.audio.original !== false) } }, { now: true }));
 }
 
 const format = (row, value) => `${value.toFixed(row.digits)}${row.unit}`;
+const TO_THE_END = 'to the end';
+
+/** Seconds of clip left after the freeze frame: the most the tail can play. */
+function clipLeft() {
+  const { clip, freeze } = state.project;
+  return clip.fps ? Math.max(0, clip.duration - freeze.frame / clip.fps) : clip.duration;
+}
 
 function paintTiming() {
   const { timing } = state.project;
   for (const row of TIMING_ROWS) {
     const input = $(`#t-${row.key}`);
+    if (row.key === 'tail') {
+      // the slider ends where the clip does, so its right end means "to the end"
+      const left = Math.round(clipLeft() * 10) / 10;
+      input.max = String(left);
+      const atEnd = timing.tail >= clipLeft() - 1e-6;
+      if (document.activeElement !== input) input.value = String(atEnd ? left : timing.tail);
+      input.nextElementSibling.textContent = atEnd ? TO_THE_END : format(row, Number(timing.tail));
+      continue;
+    }
     if (document.activeElement !== input) input.value = String(timing[row.key]);
     input.nextElementSibling.textContent = format(row, Number(timing[row.key]));
   }
   for (const button of $$('#reveal-options .opt')) button.setAttribute('aria-pressed', String(button.dataset.reveal === timing.reveal));
-  for (const [id, on] of [['tog-boil', timing.boil], ['tog-shutter', timing.shutter]]) {
+  for (const [id, on] of [['tog-boil', timing.boil], ['tog-shutter', timing.shutter], ['tog-sound', state.project.audio.original !== false]]) {
     $('#' + id).setAttribute('aria-pressed', String(on));
     $('#' + id).textContent = on ? 'On' : 'Off';
   }

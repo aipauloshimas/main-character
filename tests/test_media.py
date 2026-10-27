@@ -1042,6 +1042,130 @@ def test_mix_click_keeps_the_click_when_the_music_ends_early(synthetic_clip, tmp
     assert rms(sound, 3.2, 3.9) < 0.001
 
 
+# --- clip_sound: the clip's own sound, laid out on the timeline ----------------------------
+
+
+@pytest.fixture(scope="module")
+def beep_clip(tmp_path_factory):
+    """A 4 s, 30 fps clip whose sound says where it is: a quiet 440 Hz tone all the way through (amplitude
+    0.2) and, from 3.0 s to 3.2 s of the clip, a loud 1 kHz beep on top of it (0.5)."""
+    path = tmp_path_factory.mktemp("beepclip") / "beep.mp4"
+    media.run([
+        "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=4",
+        "-f", "lavfi", "-i",
+        "aevalsrc='0.2*sin(2*PI*440*t)+if(between(t,3,3.2),0.5*sin(2*PI*1000*t),0)':s=44100:d=4",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k",
+        "-frames:v", "120", str(path),
+    ])
+    return path
+
+
+def wav_info(path):
+    """A WAV's (rate, channels, samples per channel), read without going through mclib.media."""
+    import wave
+
+    with wave.open(str(path), "rb") as handle:
+        return handle.getframerate(), handle.getnchannels(), handle.getnframes()
+
+
+def wav_mono(path):
+    """A WAV as mono floats at its own rate: the mean of its channels."""
+    import wave
+
+    with wave.open(str(path), "rb") as handle:
+        channels = handle.getnchannels()
+        raw = np.frombuffer(handle.readframes(handle.getnframes()), dtype="<i2") / 32768.0
+        return raw.reshape(-1, channels).mean(axis=1), handle.getframerate()
+
+
+# The timeline of the tests below, at 30 fps: half a second of the held first frame, 2 s of the clip from
+# its 1.0 s, a card of 1 s, and a tail that plays from the clip's 3.0 s (where the beep is) for 1 s.
+LAID_OUT = (
+    Segment("fill", 15), Segment("clip", 60, 1.0, 1.0), Segment("card", 30), Segment("clip", 30, 3.0),
+)
+
+
+def test_clip_sound_follows_the_timeline(beep_clip, tmp_path):
+    out = tmp_path / "sound.wav"
+
+    made = media.clip_sound(beep_clip, LAID_OUT, 30, out)
+
+    assert made == out
+    rate, channels, samples = wav_info(out)
+    assert (rate, channels) == (48000, 2)
+    assert samples == round(135 / 30 * rate)  # exactly the video's length: 4.5 s
+    sound, rate = wav_mono(out)
+    tone = 0.2 / 2 ** 0.5  # the rms of the clip's quiet tone
+    assert rms(sound, 0.0, 0.45, rate) == pytest.approx(0.0, abs=0.001)  # the held first frame: silence
+    assert rms(sound, 0.6, 2.4, rate) == pytest.approx(tone, rel=0.15)  # the head: the clip's own sound
+    assert rms(sound, 2.6, 3.4, rate) < 0.001  # the card: silence
+    # and when the video lets go, the clip's sound comes back from where the tail starts (the clip's
+    # 3.0 s), so the beep that is there is heard 0.5 s into the tail, at once: 3.5 s of the video
+    assert rms(sound, 3.55, 3.65, rate) > 0.3
+    assert rms(sound, 3.8, 4.3, rate) == pytest.approx(tone, rel=0.15)
+    loud = int(np.argmax(np.abs(sound[int(3.0 * rate):]) > 0.35)) / rate + 3.0
+    assert loud == pytest.approx(3.5, abs=0.01)  # in sync with the picture, within a frame
+
+
+def test_clip_sound_fades_at_the_cuts_and_at_the_end(beep_clip, tmp_path):
+    out = tmp_path / "sound.wav"
+    media.clip_sound(beep_clip, LAID_OUT, 30, out)
+    sound, rate = wav_mono(out)
+
+    # each piece of the clip comes in and goes out over about 10 ms, so a cut does not click
+    first = int(0.5 * rate)  # the head starts here
+    assert np.abs(sound[first:first + 40]).max() < 0.5 * np.abs(sound[first + 1000:first + 1500]).max()
+    tail = int(3.5 * rate)  # and the card's silence is followed by the tail
+    assert np.abs(sound[tail:tail + 40]).max() < 0.1
+    # the last 0.4 s fades out, as the music does
+    assert rms(sound, 4.45, 4.5, rate) < 0.2 * rms(sound, 3.8, 4.0, rate)
+
+
+def test_clip_sound_at_a_speed_is_as_long_as_the_picture(beep_clip, tmp_path):
+    out = tmp_path / "sound.wav"
+    # the head at 1.43x: 43 frames of output take 43 * 1.43 / 30 s of the clip
+    segments = (Segment("clip", 43, 0.5, 1.43), Segment("card", 30))
+
+    media.clip_sound(beep_clip, segments, 30, out)
+
+    rate, _, samples = wav_info(out)
+    assert samples == round(73 / 30 * rate)
+    sound, rate = wav_mono(out)
+    assert rms(sound, 0.2, 1.2, rate) > 0.05  # the clip's sound, sped up
+    assert rms(sound, 1.5, 2.4, rate) < 0.001
+
+
+def test_clip_sound_is_exact_at_a_fractional_rate(beep_clip, tmp_path):
+    out = tmp_path / "sound.wav"
+    rate_ntsc = Fraction(24000, 1001)
+
+    media.clip_sound(beep_clip, (Segment("clip", 47, 0.0), Segment("card", 49)), rate_ntsc, out)
+
+    rate, _, samples = wav_info(out)
+    assert samples == pytest.approx(96 / float(rate_ntsc) * rate, abs=1)
+
+
+def test_clip_sound_pads_a_sound_that_is_shorter_than_the_picture(beep_clip, tmp_path):
+    out = tmp_path / "sound.wav"
+    # 40 frames from the clip's 3.5 s: only 0.5 s of sound is left there, and 1.33 s is asked for
+    media.clip_sound(beep_clip, (Segment("clip", 40, 3.5),), 30, out)
+
+    rate, _, samples = wav_info(out)
+    assert samples == round(40 / 30 * rate)
+
+
+def test_clip_sound_gives_nothing_for_a_clip_without_sound(synthetic_clip_ntsc, tmp_path):
+    out = tmp_path / "sound.wav"
+
+    assert media.clip_sound(synthetic_clip_ntsc, (Segment("clip", 24, 0.0),), 24, out) is None
+    assert not out.exists()
+    assert not media.has_audio(synthetic_clip_ntsc)
+
+
+def test_has_audio(beep_clip):
+    assert media.has_audio(beep_clip)
+
+
 # --- the clip's own frame rate (ruling Q1) --------------------------------------------------
 
 NTSC = Fraction(24000, 1001)  # 23.976 fps, a rate that only a fraction states exactly
@@ -1213,11 +1337,13 @@ def test_lossless_parts_are_joined_by_one_lossy_encode(code_clip, tmp_path):
         assert color_tags(part) == BT709_TAGS
         assert [s["pix_fmt"] for s in streams(part)] == ["yuv420p"]
 
-    # and the join is the one lossy encode: a target bitrate with a ceiling of 1.5x and a buffer
-    # of 2x, the profile players expect, still tagged BT.709
-    media.concat([part_a, part_b], joined, bitrate=20_000_000)
+    # and the join is the one lossy encode, in two passes: a target bitrate with a ceiling of 1.5x
+    # and a buffer of 2x, the profile players expect, still tagged BT.709. The card (the still part)
+    # is a zone weighted at STILL_WEIGHT, so the footage gets the bits.
+    media.concat([part_a, part_b], joined, bitrate=20_000_000, still=(30, 59))
     options = x264_options(joined)
-    assert options["rc"] == "abr" and "crf" not in options
+    assert options["rc"] == "2pass" and "crf" not in options
+    assert options["zones"] == f"30,59,b={media.STILL_WEIGHT}"
     assert (options["bitrate"], options["vbv_maxrate"], options["vbv_bufsize"]) == (
         "20000", "30000", "40000")  # kbit/s
     assert profile_of(joined) == "High"

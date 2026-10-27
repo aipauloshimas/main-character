@@ -26,7 +26,7 @@
     <div class="stage-area">
       <div id="preview" class="clip-box">
         <img id="card-img" class="card-img" alt="The card, as it will be in the video" draggable="false">
-        <video id="preview-video" class="preview-video" controls muted playsinline hidden></video>
+        <video id="preview-video" class="preview-video" controls playsinline hidden></video>
         <div id="handles" class="handles"></div>
         <div id="preview-note" class="preview-note" role="status" hidden></div>
         <span id="updating" class="updating" hidden>Updating&hellip;</span>
@@ -62,12 +62,8 @@
 
       <!-- Lines -->
       <div id="tab-lines" class="panel" role="tabpanel" aria-labelledby="tabbtn-lines">
-        <h2>Pick a version</h2>
-        <p class="sub">Claude wrote three different jokes. Pick one, then change any line you like.</p>
-        <div id="versions" class="versions"></div>
-        <p class="hint title-note">The title ("this is your sign to&hellip;") goes on in Instagram or TikTok, like the sound. Claude suggests one when you render.</p>
-
         <h2>Edit the lines</h2>
+        <p class="hint title-note">The title ("this is your sign to&hellip;") goes on in Instagram or TikTok, like the sound. Claude suggests one when you render.</p>
         <div class="fields">
           <label class="field" for="f-tl"><span class="label">What you do</span>
             <input id="f-tl" type="text" autocomplete="off" spellcheck="false"><span class="count" data-count="f-tl"></span></label>
@@ -85,7 +81,10 @@
           <label class="field" for="f-burst" id="field-burst"><span class="label">Burst word</span>
             <input id="f-burst" type="text" autocomplete="off"><span class="hint">The word in the star. Leave it empty to use your name.</span></label>
           <label class="field" for="f-emphasis" id="field-emphasis"><span class="label">Emphasis word</span>
-            <input id="f-emphasis" type="text" autocomplete="off"><span class="hint">Gets a wavy line under it when it is in a note.</span></label>
+            <input id="f-emphasis" type="text" autocomplete="off"><span class="hint">Gets a wavy line under it (handwritten notes) or a scribble circle round it (Scribble circle) when it is in a note.</span></label>
+          <label class="field" for="f-bubble" id="field-bubble"><span class="label">Bubble text</span>
+            <input id="f-bubble" type="text" autocomplete="off"><span class="count" data-count="f-bubble"></span>
+            <span class="hint">What the speech bubble says. Leave it empty for no bubble.</span></label>
           <fieldset class="field wide" id="field-stats"><legend class="label">Stats panel</legend>
             <div class="stat-row"><input id="f-stat0-label" type="text" aria-label="Stat 1 name" autocomplete="off"><input id="f-stat0-value" type="number" min="0" max="10" step="1" aria-label="Stat 1 out of 10"><span>/ 10</span></div>
             <div class="stat-row"><input id="f-stat1-label" type="text" aria-label="Stat 2 name" autocomplete="off"><input id="f-stat1-value" type="number" min="0" max="10" step="1" aria-label="Stat 2 out of 10"><span>/ 10</span></div>
@@ -175,6 +174,11 @@
           <p class="hint">A camera click, with a two-frame white flash, on the freeze.</p>
         </div>
 
+        <div class="ctl"><h4>Original sound</h4>
+          <div class="toggles"><button type="button" class="tog" id="tog-sound" aria-pressed="true" aria-label="Original sound">On</button></div>
+          <p class="hint">The clip's own sound. Off mutes it.</p>
+        </div>
+
         <h2>Music</h2>
         <p class="sub">Optional. The freeze and the release snap to the nearest beat of your track. Leave it out and add the trending sound in the app.</p>
         <div class="music">
@@ -188,13 +192,9 @@
       <!-- Shooting guide -->
       <div id="tab-shoot" class="panel" role="tabpanel" aria-labelledby="tabbtn-shoot" hidden>
         <h2>Shooting guide</h2>
-        <p class="sub">Five minutes with your phone gets you a clip that works.</p>
         <ol class="guide">
-          <li><b>Shoot horizontally if you can,</b> with the phone propped low on a table.</li>
-          <li><b>Leave the frame empty</b> for about a second.</li>
-          <li><b>Walk in close</b> to the lens.</li>
-          <li><b>Hold a deadpan stare</b> for two seconds, then smile.</li>
-          <li><b>Do two or three takes.</b></li>
+          <li><b>Record one shot.</b></li>
+          <li><b>Hold a deadpan stare</b> for two seconds, then carry on naturally.</li>
         </ol>
       </div>
 

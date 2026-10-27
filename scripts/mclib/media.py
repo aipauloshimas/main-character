@@ -33,6 +33,9 @@ from .config import CLIP_RANGE, FPS, MIN_BITRATE
 from .timeline import Segment
 
 _FADE_OUT = 0.4  # seconds the sound fades out at the end of the video
+_CUT_FADE = 0.010  # seconds the clip's sound fades in and out at each cut, so that a cut does not click
+_SOUND_RATE = 48000  # the rate of the clip's sound as clip_sound writes it
+STILL_WEIGHT = 0.25  # of its share of the bits, what the card gets in a two-pass final encode
 _FRAME_FILES = "[0-9]" * 6 + ".jpg"  # the file names extract_frames writes, as a glob pattern
 
 # Color. ffmpeg 8 drops the -color_primaries and -color_trc options, so every encode writes its
@@ -569,18 +572,40 @@ def encode_stills(
 
 
 def concat(
-    parts: list[Path], out: Path, fps: Fraction | int = FPS, bitrate: int | None = None
+    parts: list[Path], out: Path, fps: Fraction | int = FPS, bitrate: int | None = None,
+    still: tuple[int, int] | None = None,
 ) -> None:
     """Join video parts, in order, into one video at fps frames per second. The parts hold no
     sound. They are encoded again (libx264, preset medium, yuv420p) so the joins are clean, and
     tagged BT.709 limited range like the parts. The quality is crf 18, or, when bitrate (bits per
     second) is given, that average with a ceiling of 1.5 times it and a buffer of 2 times it: the
-    one lossy encode of a render whose parts are lossless."""
-    quality = _final_encoder(bitrate) if bitrate else [
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", *_BT709_TAGS]
-    _run_concat([f"file {_quote(part)}" for part in parts], [
-        "-r", str(_rate(fps)), *quality, str(out),
-    ])
+    one lossy encode of a render whose parts are lossless.
+
+    At a bitrate the encode takes two passes. A single pass at an average spends the budget as it
+    goes and can leave the end of the video starved: a real intro, a 10.7 Mbps clip, came out with
+    2.6 Mbps for the wink in its last second. The first pass reads the whole video and writes only
+    its log; the second spreads the bits where the picture needs them.
+
+    still is the card, as (first frame, last frame) of the output, when there is one. Left to
+    itself the two-pass encode treats the card's grain and boiling dots as the hardest picture and
+    gives it most of the bits (15 Mbps of 10.6 in a real intro, and 5.6 for the footage). A zone
+    weights the card at STILL_WEIGHT of its share, so the footage gets the bits and the average is
+    still the bitrate."""
+    entries = [f"file {_quote(part)}" for part in parts]
+    rate = ["-r", str(_rate(fps))]
+    if not bitrate:
+        _run_concat(entries, [
+            *rate, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+            *_BT709_TAGS, str(out),
+        ])
+        return
+    quality = _final_encoder(bitrate)
+    if still is not None and still[1] >= still[0]:
+        quality += ["-x264-params", f"zones={still[0]},{still[1]},b={STILL_WEIGHT}"]
+    with tempfile.TemporaryDirectory(prefix="main-character-pass-") as folder:
+        log = ["-passlogfile", str(Path(folder) / "x264")]
+        _run_concat(entries, [*rate, *quality, "-pass", "1", *log, "-an", "-f", "null", os.devnull])
+        _run_concat(entries, [*rate, *quality, "-pass", "2", *log, str(out)])
 
 
 def _quote(path: Path) -> str:
@@ -620,13 +645,17 @@ def mux_audio(video: Path, audio: Path, out: Path, fade_out: float = _FADE_OUT) 
     ])
 
 
-def mix_click(video: Path, click: Path, at: float, out: Path, music: Path | None = None) -> None:
+def mix_click(
+    video: Path, click: Path, at: float, out: Path, music: Path | None = None,
+    fade_out: float = _FADE_OUT,
+) -> None:
     """Add sound to a video: the click sound starting at "at" seconds, over the music when there
     is any. The picture is copied as it is. The sound is padded or cut to the length of the video
     and encoded as AAC 192k. The music is cut to the video, not turned down, and fades out over
-    its last 0.4 s like the sound mux_audio makes, so the ending is the same with a click or not.
-    The mix lasts as long as the longer of the two, so a track that ends before the click does
-    not take the click with it.
+    its last fade_out seconds (0.4 s, like the sound mux_audio makes, so the ending is the same
+    with a click or not; none when fade_out is 0, for a sound that has faded already, such as
+    clip_sound's). The mix lasts as long as the longer of the two, so a track that ends before the
+    click does not take the click with it.
     """
     duration = _duration(video)
     whole = f"apad=whole_dur={duration:.6f}"
@@ -636,11 +665,89 @@ def mix_click(video: Path, click: Path, at: float, out: Path, music: Path | None
         graph += f";[click]{whole}[sound]"
     else:
         inputs += ["-i", str(music)]
+        fade = f",{_fade_out(duration, fade_out)}" if fade_out > 0 else ""
         graph += (
-            f";[2:a]atrim=end={duration:.6f},{_fade_out(duration, _FADE_OUT)}[music]"
+            f";[2:a]atrim=end={duration:.6f}{fade}[music]"
             f";[music][click]amix=inputs=2:duration=longest:normalize=0,{whole}[sound]"
         )
     run([
         *inputs, "-filter_complex", graph, "-map", "0:v:0", "-map", "[sound]", "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k", "-t", f"{duration:.6f}", str(out),
     ])
+
+
+def _audio_channels(path: Path) -> int:
+    """How many channels the first audio stream of a file has, 0 when it has no audio."""
+    shown = _exec([
+        "ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels",
+        "-of", "csv=p=0", str(path),
+    ]).strip()
+    return int(shown) if shown else 0
+
+
+def has_audio(path: Path) -> bool:
+    """True when a file has at least one audio stream."""
+    return _audio_channels(path) > 0
+
+
+def clip_sound(clip: Path, segments, fps: Fraction | int | float, out: Path) -> Path | None:
+    """Write the clip's own sound, laid out on the timeline, as one WAV at `out` (48 kHz stereo,
+    16-bit), and return `out`. None, with nothing written, when the clip has no sound.
+
+    segments are the timeline's (timeline.Segment), in order, and fps the rate the video is counted
+    in (see output_fps). The sound follows them one by one:
+
+    - a "fill" or a "card" is silence for frames / fps seconds: the held first frame and the card
+      have no sound of their own;
+    - a "clip" is the clip's sound from the segment's src_start, for frames * speed / fps seconds of
+      the clip, played at the segment's speed (atempo, which changes the speed and leaves the pitch
+      alone), so that it lasts frames / fps seconds, as the picture does. The tail therefore starts
+      at its own source time, and the sound comes back in step with the picture when the card lets go.
+      A piece of the clip fades in and out over 10 ms, so that a cut does not click.
+
+    The whole sound fades out over its last 0.4 s, like the music does, and is padded or cut to
+    exactly total frames / fps seconds, the length of the video (a clip whose sound is shorter than
+    its picture is padded with silence). The tail of a clip with a different length of sound and
+    picture is therefore never a frame off the picture.
+    """
+    channels = _audio_channels(clip)
+    if not channels:
+        return None
+    # A mono sound is copied to both sides. The resampler's own mono-to-stereo is 3 dB quieter.
+    stereo = "pan=stereo|c0=c0|c1=c0," if channels == 1 else ""
+    rate = _rate(fps)
+    seconds = [Fraction(segment.frames) / rate for segment in segments]
+    total = float(sum(seconds))
+    clips = [number for number, segment in enumerate(segments) if segment.kind == "clip"]
+
+    graph = []
+    if clips:  # one copy of the clip's sound for each piece of it that is used
+        names = "".join(f"[a{number}]" for number in clips)
+        graph.append(f"[0:a]asplit={len(clips)}{names}")
+    for number, (segment, length) in enumerate(zip(segments, map(float, seconds))):
+        exact = f"apad=whole_dur={length:.9f},atrim=end={length:.9f}"
+        if segment.kind == "clip":
+            start = segment.src_start
+            speed = f",atempo={segment.speed:.6f}" if segment.speed != 1.0 else ""
+            fade = min(_CUT_FADE, length / 2)
+            graph.append(
+                f"[a{number}]atrim=start={start:.9f}:end={start + length * segment.speed:.9f},"
+                f"asetpts=PTS-STARTPTS{speed},{stereo}aresample={_SOUND_RATE},aformat=channel_layouts=stereo,"
+                f"afade=t=in:d={fade:.6f},afade=t=out:st={length - fade:.9f}:d={fade:.6f},"
+                f"{exact}[p{number}]"
+            )
+        else:
+            graph.append(
+                f"anullsrc=r={_SOUND_RATE}:cl=stereo,{exact}[p{number}]"
+            )
+    joined = "".join(f"[p{number}]" for number in range(len(segments)))
+    graph.append(
+        f"{joined}concat=n={len(segments)}:v=0:a=1,{_fade_out(total, _FADE_OUT)},"
+        f"apad=whole_dur={total:.9f},atrim=end={total:.9f}[sound]"
+    )
+    inputs = ["-i", str(clip)] if clips else []
+    run([
+        *inputs, "-filter_complex", ";".join(graph), "-map", "[sound]", "-c:a", "pcm_s16le",
+        "-ar", str(_SOUND_RATE), "-t", f"{total:.9f}", str(out),
+    ])
+    return Path(out)

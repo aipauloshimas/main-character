@@ -122,7 +122,9 @@ def test_skill_md_has_no_title_in_the_copy_and_suggests_one_in_the_caption():
     assert set(version) == {"notes", "name", "extras"} and set(version["notes"]) == {"tl", "tr", "bl", "br"}
     listed = re.search(r"within the soft limits: (.*?)\.\n", text, re.DOTALL).group(1)
     limits = dict(re.findall(r"`(tl|tr|bl|br|name)` (\d+)", listed))
-    assert {key: int(value) for key, value in limits.items()} == SOFT_LIMITS  # the code's own, and none for a title
+    # the code's own, and none for a title (the speech bubble's limit is told with the extras, not with the notes')
+    assert {key: int(value) for key, value in limits.items()} == {k: v for k, v in SOFT_LIMITS.items() if k != "bubble"}
+    assert "`extras.bubble`" in text and f"{SOFT_LIMITS['bubble']} characters at" in " ".join(text.split())
 
     # the title is suggested in caption.txt, before the hashtags, and the rules of the old hook are its rules
     step = text[text.index("## 9. On DONE"):text.index("## Style recipes")]
@@ -140,7 +142,8 @@ def test_readme_says_the_reel_keeps_the_clips_own_format():
     assert "your clip's own format and resolution" in readme
     assert "1080x1920" not in readme and "letterbox" not in readme.lower() and "hook" not in readme.lower()
     assert "a two-line title to add in Instagram or TikTok" in readme
-    assert "Shoot horizontally if possible" in readme  # the shooting guide stays
+    assert "1. Record one shot.\n2. Hold a deadpan stare for two seconds, then carry on naturally.\n" in readme  # the guide
+    assert "Five minutes" not in readme and "Shoot horizontally" not in readme
 
 
 def test_skill_md_setup_step_names_what_the_doctor_checks_of_ffmpeg():
@@ -219,3 +222,26 @@ def test_skill_md_runs_refine_only_while_no_studio_render_runs():
 
     assert "Run `refine` only while no studio render is running" in text
     assert "no lock across programs yet" in text
+
+
+def test_the_shooting_guide_is_two_steps_in_the_skill_and_the_readme():
+    guide = "1. Record one shot.\n2. Hold a deadpan stare for two seconds, then carry on naturally.\n"
+    text = skill_text()
+    step = text[text.index("## 2. No clip?"):text.index("## 3. The interview")]
+
+    assert guide in step and "Walk in close" not in text and "Five minutes" not in text
+    assert guide in (SKILL.parent / "README.md").read_text(encoding="utf-8")
+
+
+def test_skill_md_keeps_the_clips_own_sound_and_picks_the_version_in_the_chat():
+    text = " ".join(skill_text().split())
+    readme = (SKILL.parent / "README.md").read_text(encoding="utf-8")
+
+    # the video keeps the clip's sound unless the person mutes it; nothing says it is silent any more
+    assert "the video is silent" not in text and "silent" not in readme.replace("is silent while the card is up", "")
+    assert "`audio.original`: true (the default) keeps the clip's own sound" in text
+    assert "Original sound" in text and "Original sound" in readme
+    # the studio does not show the versions: the person picks in the chat and Claude patches the copy
+    step7 = text[text.index("## 7. Open the studio"):text.index("## 8. On STYLE")]
+    assert "which one they want" in step7 and "`copy` is the chosen version" in step7
+    assert "pick a version and edit" not in text

@@ -234,6 +234,13 @@ def test_nullable_keys_can_be_deleted_by_a_patch(server):
     assert server.post("/api/project", {"audio": {"track": None}}).status == 200
     assert server.project()["audio"]["track"] is None
 
+    # The Sound switch edits audio.original, and leaves the track alone; anything but a bool is refused
+    assert server.project()["audio"]["original"] is True
+    assert server.post("/api/project", {"audio": {"original": False}}).status == 200
+    assert server.project()["audio"]["original"] is False
+    assert server.post("/api/project", {"audio": {"original": "off"}}).status == 400
+    assert server.project()["audio"]["original"] is False
+
 
 def test_a_style_request_can_be_cancelled_and_asked_again(server):
     # Claude's session may not be waiting. The page's Cancel is a patch with a null, and "Ask again" a new request
@@ -350,7 +357,7 @@ def test_options_have_what_the_page_builds_its_controls_from(server):
     assert options["palettes"]["Magenta"] == recipes.PALETTES["Magenta"] and len(options["palettes"]) == 7
     assert options["roles"] == list(recipes.ROLES)
     assert options["soft_limits"] == project_file.SOFT_LIMITS
-    assert options["soft_limits"] == {"tl": 30, "tr": 24, "bl": 34, "br": 30, "name": 16}  # no limit for a title
+    assert options["soft_limits"] == {"tl": 30, "tr": 24, "bl": 34, "br": 30, "name": 16, "bubble": 14}  # no limit for a title
     assert options["timing"]["defaults"]["freeze_at"] == config.TIMING_DEFAULTS["freeze_at"]
     assert options["timing"]["ranges"]["hold"] == [1.0, 6.0]
 
