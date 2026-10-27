@@ -20,7 +20,8 @@ Claude changes project.json only through patch (a JSON merge patch) and style (a
 which also answers "Ask Claude"), and through refine (a finer cutout, which saves matte.detail).
 They read and write the file the way the studio does, so patch and style are safe while the studio is
 open. refine rewrites the cutout's pictures, so it is run only while no studio render runs: nothing but
-that rule keeps the two apart yet (a lock across programs is still to come).
+that rule keeps the two apart yet. Two renders do lock each other out, across programs (fileio.held_alone):
+the second one stops at once with an ERROR that says so.
 """
 
 from __future__ import annotations

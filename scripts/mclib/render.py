@@ -37,12 +37,17 @@ from . import card, matte, media, sfx
 from . import onsets as beats
 from . import project as project_file
 from .config import MAX_LONG_SIDE, PLAN_WIDTH, TIMING_RANGES, output_size, plan_size
-from .fileio import retry_locked
+from .fileio import held_alone, retry_locked
 from .pipeline import RERUN_BEFORE, person_area
 from .timeline import Timeline, build_timeline, card_states, snap_to_onsets
 
 _RENDERS = "renders"
 _WORK = "_work"
+_LOCK = ".render-lock"  # held for the length of a render (fileio.held_alone)
+BUSY = (
+    "Another render of this project is running, in the studio or in a terminal. Wait for it to "
+    "finish, then try again."
+)
 _CLIP_KEYS = ("path", "stem", "width", "height", "fps", "duration")  # what a render reads of the clip
 
 
@@ -151,9 +156,25 @@ def render(
     about a second), and a file that stays locked is a PermissionError that names it. renders/_work
     is cleared whether the render worked or failed (a render that was killed, or whose folder a
     program has open, leaves it, and the next render removes it). A render owns that folder, so two
-    renders of one project must not run at the same time.
+    renders of one project never run at the same time: each holds renders/.render-lock, across
+    programs (the studio and the command line), and one that finds it held raises fileio.Busy at once.
     """
     project_dir = Path(project_dir).resolve()
+    project = project_file.load(project_dir)  # a project that cannot render says so before anything is made
+    project_file.validate(project)
+    _inputs(project_dir, project)
+    with held_alone(project_dir / _RENDERS / _LOCK, BUSY):
+        return _render(project_dir, preview, progress, matte_runner)
+
+
+def _render(
+    project_dir: Path,
+    preview: bool,
+    progress: Callable[[str, int, int], None] | None,
+    matte_runner: Callable | None,
+) -> RenderResult:
+    """render, while it holds the project's render lock. The project is read again, so a change saved
+    while render checked it is kept."""
     project = project_file.load(project_dir)
     project_file.validate(project)
     source, track = _inputs(project_dir, project)

@@ -146,3 +146,48 @@ def test_a_file_that_stays_open_is_a_plain_error_and_is_left_as_it_was(tmp_path)
             fileio.retry_locked(lambda: os.replace(new, video), video)
 
     assert video.read_bytes() == b"old" and new.read_bytes() == b"new"
+
+
+# --- held_alone: one program at a time ------------------------------------------------------------
+
+
+def test_a_second_holder_is_turned_away_at_once(tmp_path):
+    lock = tmp_path / "renders" / ".render-lock"
+    with fileio.held_alone(lock, "busy now"):
+        with pytest.raises(fileio.Busy, match="busy now"):
+            with fileio.held_alone(lock, "busy now"):
+                pass
+    assert lock.exists()  # the folder and the file are made, and the file is left
+
+
+def test_the_lock_is_let_go_after_the_block_even_when_it_fails(tmp_path):
+    lock = tmp_path / ".render-lock"
+    with pytest.raises(ZeroDivisionError):
+        with fileio.held_alone(lock, "busy"):
+            1 / 0
+    with fileio.held_alone(lock, "busy"):
+        pass
+
+
+def test_another_program_holding_the_lock_turns_this_one_away(tmp_path):
+    import subprocess
+
+    lock = tmp_path / ".render-lock"
+    root = Path(fileio.__file__).resolve().parent.parent
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time; sys.path.insert(0, sys.argv[1]); from mclib import fileio\n"
+         "with fileio.held_alone(sys.argv[2], 'busy'):\n"
+         "    print('held', flush=True); sys.stdin.readline()",
+         str(root), str(lock)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(fileio.Busy):
+            with fileio.held_alone(lock, "busy"):
+                pass
+    finally:
+        holder.communicate("\n", timeout=30)
+    with fileio.held_alone(lock, "busy"):  # and once that program is done, it is free again
+        pass

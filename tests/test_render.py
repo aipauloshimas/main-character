@@ -31,7 +31,7 @@ import pytest
 from conftest import BT709, color_tags, rms, x264_options
 from PIL import Image
 
-from mclib import card, matte, media, render
+from mclib import card, fileio, matte, media, render
 from mclib import project as project_file
 from mclib.card import ALL_VISIBLE
 from mclib.timeline import card_states
@@ -286,8 +286,8 @@ def test_render_preview_is_at_the_plans_size(fake_project):
     assert info["frames"] == result.frames == 212
     assert result.video == folder.resolve() / "renders" / "preview.mp4"
     assert (result.cover, result.with_music) == (None, None)
-    # Nothing but the preview is written, and the project is not touched: no status, no rendered_at
-    assert sorted(path.name for path in (folder / "renders").iterdir()) == ["preview.mp4"]
+    # Nothing but the preview (and the render lock's file) is written, and the project is not touched
+    assert sorted(path.name for path in (folder / "renders").iterdir()) == [".render-lock", "preview.mp4"]
     assert project_file.load(folder) == before
 
 
@@ -808,6 +808,22 @@ def test_a_final_renders_fill_frames_are_the_clips_first_frame_at_the_size_of_th
 
 
 # --- the work folder, and what goes wrong -----------------------------------------------------
+
+
+def test_a_render_that_finds_another_running_is_turned_away_and_leaves_its_work_alone(fake_project):
+    # The studio and a terminal once rendered one project at the same time: the second cleared the
+    # first's renders/_work, and the first lost its freeze frames halfway through.
+    folder, _ = fake_project
+    renders = folder.resolve() / "renders"
+    theirs = renders / "_work" / "freeze" / "frames" / "000001.jpg"
+    theirs.parent.mkdir(parents=True)
+    theirs.write_bytes(b"the other render's frame")
+    with fileio.held_alone(renders / ".render-lock", "held by the other render"):
+        with pytest.raises(fileio.Busy, match="Another render of this project is running"):
+            render.render(folder, preview=True)
+    assert theirs.read_bytes() == b"the other render's frame"
+    assert not (renders / "preview.mp4").exists()
+    assert render.render(folder, preview=True).video.exists()  # and once it is done, a render runs
 
 
 def test_render_clears_the_work_folder_even_when_it_is_locked_for_a_moment(fake_project, monkeypatch):

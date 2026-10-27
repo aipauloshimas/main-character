@@ -221,7 +221,7 @@ def test_skill_md_runs_refine_only_while_no_studio_render_runs():
     text = " ".join(skill_text().split())
 
     assert "Run `refine` only while no studio render is running" in text
-    assert "no lock across programs yet" in text
+    assert "refine has no lock yet" in text
 
 
 def test_the_shooting_guide_is_two_steps_in_the_skill_and_the_readme():

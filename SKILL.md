@@ -174,7 +174,7 @@ so x goes up to 600 and y up to H−480, where H is the card's height:
   1. A thin light rim alone: patch `{"matte": {"edge": -1}}` first, going down to -2.
   2. Otherwise re-cut the frames around the freeze at a higher detail:
      `python "<skill dir>/scripts/mc.py" refine "<project>" --detail high`. Run `card` and look again. Run
-     `refine` only while no studio render is running: there is no lock across programs yet.
+     `refine` only while no studio render is running: renders lock each other out, but refine has no lock yet.
   3. Still wrong: the same with `--detail max`.
   4. Still wrong: patch `{"freeze": {"frame": <the next SUGGESTED frame>}}`, run `card`, and tell the person why in
      one line.
@@ -249,7 +249,8 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
    - the release catches the smile starting.
 3. Offer at most two tweaks, each with its setting and value (see "Settings"). Patch only after a yes, then ask
    them to reload and press Render again. If the studio is closed, run
-   `python "<skill dir>/scripts/mc.py" render "<project>"` yourself, never while a studio render runs.
+   `python "<skill dir>/scripts/mc.py" render "<project>"` yourself. If it says another render is
+   running, one is going in the studio: wait for it, and run yours after.
 4. Write `<project>/renders/caption.txt` with Write, in this order:
    - a short caption in the person's voice, built only from their answers;
    - a line "Title to add in Instagram:", then the title as two lines;
