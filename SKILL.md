@@ -230,7 +230,7 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
 ## 9. On DONE: check the render
 
 1. `status.outputs` in project.json lists the files inside `<project>`: `renders/<clip>-main-character.mp4`,
-   `renders/<clip>-cover.png`, and `renders/<clip>-with-music.mp4` when they added their own track.
+   and `renders/<clip>-cover.png`.
 2. Look at three stills of the video. The render records its own moments, in seconds, as `status.freeze_out` and
    `status.release_out`. Take:
    - the freeze, at `freeze_out` + 0.3;
@@ -263,9 +263,9 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
      confession.
    - Keep both lines lowercase and about 40 characters at most each. The person types them as written.
 5. Tell them where the files are, and that the video keeps the clip's own sound (silent over the card, back in
-   step when the video lets go; Original sound in the Timing tab mutes it) and has no title: they add the
-   trend's sound and the title from `caption.txt` in Instagram or TikTok. With the default timing, the freeze lands at 2.07 s, on
-   the sound's hit.
+   step when the video lets go; Original sound in the Timing tab mutes it) and has no title or music: they add
+   the sound and the title from `caption.txt` in Instagram or TikTok. Tell them the second the freeze lands
+   (`status.freeze_out`, for example "the freeze lands at 3.08 s"), so they can line their sound up with it.
 6. If the studio is still open, run `wait` again with `--since "<the DONE stamp>"` in the background. When they
    are finished, stop the `serve` and `wait` background tasks.
 
@@ -340,12 +340,12 @@ The contrast guard: at least 3.0 (WCAG), measured where the lettering sits.
 
 ## Settings
 
-- `timing`: `freeze_at` 0.5 to 5.0 s (default 2.07), `hold` 1.0 to 6.0 (3.0), `head_speed` 0.75 to 1.5 (1.0),
+- `timing`: `hold` 1.0 to 6.0 (3.0), `head_speed` 0.75 to 1.5 (1.0; the clip plays from its first frame to the
+  freeze frame at this speed, so the freeze lands at the freeze frame's time divided by it),
   `tail` 0.0 to 30.0 (30.0: the rest of the clip plays to its last frame; set it lower to end sooner), `release_from` 0.0 to 1.0 (0.0; skips dead time after the freeze, to reach the
   smile), `reveal` "staggered" or "all", `boil` and `shutter` true or false.
 - `audio.original`: true (the default) keeps the clip's own sound in the video, silent over the card and back in
-  step with the picture when the video lets go; false mutes it. `audio.track` is the person's music, which
-  only the `-with-music` file has.
+  step with the picture when the video lets go; false mutes it.
 - `freeze.frame`: a frame of the clip, from 0. `matte.edge`: a whole number from -4 to 4 (below 0 shrinks the
   cutout, above 0 softens it).
 
@@ -355,8 +355,7 @@ The contrast guard: at least 3.0 (WCAG), measured where the lettering sits.
   or difference keying, even when another skill suggests one.
 - **Nothing is stated as fact that the person didn't say.** Your ideas are options until they confirm them.
 - **Ask before any download or install**, naming what it is, its size and its source.
-- **No trending audio.** Never download or add one: the person adds the sound in the app. A track they upload
-  in the studio themselves is fine.
+- **No music.** Never download or add any: the person adds the sound in their own app.
 - **Keep the person's own words.** Trim to fit; never change what they mean. Emojis are stripped: the video's
   fonts can't draw them, and `patch` removes them with a warning. Any other character a font can't draw is
   warned about and flagged, never removed: ask the person what to write instead.

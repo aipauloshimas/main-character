@@ -155,7 +155,8 @@
       <!-- Timing -->
       <div id="tab-timing" class="panel" role="tabpanel" aria-labelledby="tabbtn-timing" hidden>
         <h2>Timing</h2>
-        <p class="sub">Where the freeze lands, and how long it stays. The defaults line up with the trending sound.</p>
+        <p class="sub">How the clip plays before the freeze, and how long the card stays. You add the sound in your own app.</p>
+        <p id="freeze-lands" class="freeze-lands" role="status"></p>
         <div id="timing-sliders" class="timing"></div>
 
         <div class="ctl"><h4>Reveal</h4>
@@ -177,15 +178,6 @@
         <div class="ctl"><h4>Original sound</h4>
           <div class="toggles"><button type="button" class="tog" id="tog-sound" aria-pressed="true" aria-label="Original sound">On</button></div>
           <p class="hint">The clip's own sound. Off mutes it.</p>
-        </div>
-
-        <h2>Music</h2>
-        <p class="sub">Optional. The freeze and the release snap to the nearest beat of your track. Leave it out and add the trending sound in the app.</p>
-        <div class="music">
-          <label class="upload">Add a music track
-            <input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" id="music-file"></label>
-          <div id="music-info" class="music-info" role="status"></div>
-          <button type="button" class="link" id="music-remove" hidden>Remove the music</button>
         </div>
       </div>
 

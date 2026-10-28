@@ -655,16 +655,16 @@ def test_concat_and_mux(synthetic_clip, code_clip, tmp_path):
     assert rms(sound, 1.0, 1.1) > 0.05
     assert rms(sound, 1.15, 2.0) < 0.001
 
-    # with music, the click rides on top of the music, which is cut to the video and fades out
-    with_music = tmp_path / "with-music.mp4"
-    media.mix_click(video, click, 1.0, with_music, music=synthetic_clip)
-    assert float({s["codec_type"]: s for s in streams(with_music)}["audio"]["duration"]) == (
+    # over a sound (the clip's own), the click rides on top of it, and the sound is cut to the video and fades out
+    over_sound = tmp_path / "over-sound.mp4"
+    media.mix_click(video, click, 1.0, over_sound, under=synthetic_clip)
+    assert float({s["codec_type"]: s for s in streams(over_sound)}["audio"]["duration"]) == (
         pytest.approx(2.0, abs=0.05))
-    sound = mono_samples(with_music)
-    assert rms(sound, 0.2, 0.4) == pytest.approx(body, rel=0.1)  # the music is not turned down
-    assert rms(sound, 1.0, 1.1) > 1.2 * body  # music and click together
+    sound = mono_samples(over_sound)
+    assert rms(sound, 0.2, 0.4) == pytest.approx(body, rel=0.1)  # the sound is not turned down
+    assert rms(sound, 1.0, 1.1) > 1.2 * body  # sound and click together
     assert rms(sound, 1.95, 2.0) < 0.2 * body
-    assert color_tags(with_music) == BT709_TAGS
+    assert color_tags(over_sound) == BT709_TAGS
 
     # The freeze, for the three ways a camera can store a clip. Whatever the clip, the head, the
     # card and the joined video carry the same BT.709 tags. The frozen frame, as Pillow reads the
@@ -1020,23 +1020,23 @@ def test_a_clip_with_jittered_timestamps_is_not_doubled_to_60_fps(vfr_clip, tmp_
     assert frames == pytest.approx(info["duration"] * round(average), abs=2)
 
 
-def test_mix_click_keeps_the_click_when_the_music_ends_early(synthetic_clip, tmp_path):
-    # The click lands at 3.0 s, after a track that is only 1 s long has ended. It used to be dropped,
-    # because the mix lasted as long as its first input, the music.
+def test_mix_click_keeps_the_click_when_the_sound_under_it_ends_early(synthetic_clip, tmp_path):
+    # The click lands at 3.0 s, after a sound that is only 1 s long has ended. It used to be dropped,
+    # because the mix lasted as long as its first input, the sound under it.
     click = tmp_path / "click.wav"
     media.run(["-f", "lavfi", "-i", f"sine=frequency=1000:sample_rate={SOUND_RATE}:duration=0.1",
                str(click)])
-    short_music = tmp_path / "short.wav"
+    short_sound = tmp_path / "short.wav"
     media.run(["-f", "lavfi", "-i", f"sine=frequency=330:sample_rate={SOUND_RATE}:duration=1",
-               str(short_music)])
+               str(short_sound)])
     mixed = tmp_path / "mixed.mp4"
 
-    media.mix_click(synthetic_clip, click, 3.0, mixed, music=short_music)
+    media.mix_click(synthetic_clip, click, 3.0, mixed, under=short_sound)
 
     assert float({s["codec_type"]: s for s in streams(mixed)}["audio"]["duration"]) == (
         pytest.approx(4.0, abs=0.05))  # the video's length
     sound = mono_samples(mixed)
-    assert rms(sound, 0.1, 0.8) > 0.05  # the music, while it lasts
+    assert rms(sound, 0.1, 0.8) > 0.05  # the sound under it, while it lasts
     assert rms(sound, 1.2, 2.9) < 0.001  # then silence
     assert rms(sound, 3.0, 3.1) > 0.05  # and the click, at its second
     assert rms(sound, 3.2, 3.9) < 0.001
@@ -1078,10 +1078,10 @@ def wav_mono(path):
         return raw.reshape(-1, channels).mean(axis=1), handle.getframerate()
 
 
-# The timeline of the tests below, at 30 fps: half a second of the held first frame, 2 s of the clip from
-# its 1.0 s, a card of 1 s, and a tail that plays from the clip's 3.0 s (where the beep is) for 1 s.
+# The timeline of the tests below, at 30 fps: half a second of card (silence), 2 s of the clip from its
+# 1.0 s, a card of 1 s, and a tail that plays from the clip's 3.0 s (where the beep is) for 1 s.
 LAID_OUT = (
-    Segment("fill", 15), Segment("clip", 60, 1.0, 1.0), Segment("card", 30), Segment("clip", 30, 3.0),
+    Segment("card", 15), Segment("clip", 60, 1.0, 1.0), Segment("card", 30), Segment("clip", 30, 3.0),
 )
 
 
@@ -1096,7 +1096,7 @@ def test_clip_sound_follows_the_timeline(beep_clip, tmp_path):
     assert samples == round(135 / 30 * rate)  # exactly the video's length: 4.5 s
     sound, rate = wav_mono(out)
     tone = 0.2 / 2 ** 0.5  # the rms of the clip's quiet tone
-    assert rms(sound, 0.0, 0.45, rate) == pytest.approx(0.0, abs=0.001)  # the held first frame: silence
+    assert rms(sound, 0.0, 0.45, rate) == pytest.approx(0.0, abs=0.001)  # the first card: silence
     assert rms(sound, 0.6, 2.4, rate) == pytest.approx(tone, rel=0.15)  # the head: the clip's own sound
     assert rms(sound, 2.6, 3.4, rate) < 0.001  # the card: silence
     # and when the video lets go, the clip's sound comes back from where the tail starts (the clip's
@@ -1117,7 +1117,7 @@ def test_clip_sound_fades_at_the_cuts_and_at_the_end(beep_clip, tmp_path):
     assert np.abs(sound[first:first + 40]).max() < 0.5 * np.abs(sound[first + 1000:first + 1500]).max()
     tail = int(3.5 * rate)  # and the card's silence is followed by the tail
     assert np.abs(sound[tail:tail + 40]).max() < 0.1
-    # the last 0.4 s fades out, as the music does
+    # the last 0.4 s fades out
     assert rms(sound, 4.45, 4.5, rate) < 0.2 * rms(sound, 3.8, 4.0, rate)
 
 

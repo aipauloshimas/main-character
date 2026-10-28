@@ -5,10 +5,9 @@ this module reads a file or calls ffmpeg.
 
 The output has three parts, in order:
 
-1. The head: the stretch of clip that ends on the freeze frame (a "clip" segment). When the clip
-   has too little footage before the freeze, its first frame is held first, for at most
-   max_fill seconds (a "fill" segment). When even that is not enough, the head is whatever
-   exists, the freeze lands earlier than asked, and the timeline carries a warning.
+1. The head: the clip played from its first frame up to the freeze frame (a "clip" segment), at
+   head_speed. The freeze lands wherever that takes it: nothing is held or trimmed to hit a
+   particular second, because the person lines their own sound up in their app.
 2. The card: the frozen frame under the illustrated card, for hold seconds (a "card" segment).
 3. The tail: the clip playing on from the freeze, for up to tail seconds or as much as the clip
    has left (a "clip" segment).
@@ -20,7 +19,7 @@ import math
 from dataclasses import dataclass
 from itertools import groupby
 
-from .config import FPS, MAX_FILL, SNAP_WINDOW, STAGGER
+from .config import FPS, STAGGER
 
 _REVEAL_MODES = ("staggered", "all")
 
@@ -34,9 +33,9 @@ _EPSILON = 1e-6
 class Segment:
     """One run of output frames.
 
-    kind is "fill" (the clip's first frame, held), "clip" (the clip playing) or "card" (the
-    frozen frame under the card). For a clip, output frame i shows the clip at
-    src_start + i * speed / fps seconds. A fill or a card has no source time to follow.
+    kind is "clip" (the clip playing) or "card" (the frozen frame under the card). For a clip,
+    output frame i shows the clip at src_start + i * speed / fps seconds. A card has no source
+    time to follow.
     """
 
     kind: str
@@ -50,15 +49,13 @@ class Timeline:
     """The whole output: its segments in order, and when the card starts and ends.
 
     freeze_out and release_out are output times in seconds, and total_frames is the sum of every
-    segment's frames. warning is a sentence for the person when the freeze could not land where
-    they asked, otherwise None.
+    segment's frames.
     """
 
     segments: tuple[Segment, ...]
     freeze_out: float
     release_out: float
     total_frames: int
-    warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,34 +79,19 @@ def build_timeline(
     freeze_time: float,
     timing: dict,
     fps: float = FPS,
-    max_fill: float = MAX_FILL,
 ) -> Timeline:
     """Lay the clip out as head, card and tail, counted in frames of fps: the clip's own rate, as
     media.output_fps gives it (a Fraction is fine).
 
     clip_duration is the clip's length and freeze_time the time of the frozen frame in the clip,
-    both in seconds. timing needs freeze_at (where the freeze should land in the output), hold,
-    head_speed, tail and release_from.
+    both in seconds. timing needs hold, head_speed, tail and release_from. The head always starts
+    at the clip's first frame and plays at head_speed to the freeze frame, so it lasts
+    freeze_time / head_speed seconds, and the freeze lands there.
     """
     fps = float(fps)  # a Fraction would make the times below Fractions too
     speed = timing["head_speed"]
-    wanted = round(timing["freeze_at"] * fps)  # head frames wanted before the freeze
-    avail = math.floor(freeze_time * fps / speed + _EPSILON)  # head frames the clip can give
-    warning = None
-
-    if avail >= wanted:
-        # Enough clip: play the stretch that ends on the freeze frame. The clamp only absorbs
-        # float noise, so a clip starting a hair before 0 is a clip starting at 0.
-        start = max(0.0, freeze_time - wanted * speed / fps)
-        parts = [Segment("clip", wanted, start, speed)]
-    elif wanted - avail <= round(max_fill * fps):
-        # A little short: hold the first frame for the missing frames, then play all there is.
-        parts = [Segment("fill", wanted - avail), Segment("clip", avail, 0.0, speed)]
-    else:
-        # Too short to fill: play what there is, and the freeze lands early.
-        parts = [Segment("clip", avail, 0.0, speed)]
-        warning = f"The freeze lands at {avail / fps:.2f} s, so the trend's sound will not line up."
-    head_frames = sum(part.frames for part in parts)
+    head_frames = math.floor(freeze_time * fps / speed + _EPSILON)
+    parts = [Segment("clip", head_frames, 0.0, speed)]
 
     card_frames = round(timing["hold"] * fps)
     parts.append(Segment("card", card_frames))
@@ -130,7 +112,6 @@ def build_timeline(
         freeze_out=freeze_out,
         release_out=freeze_out + card_frames / fps,
         total_frames=sum(segment.frames for segment in segments),
-        warning=warning,
     )
 
 
@@ -208,28 +189,3 @@ def _card_look(
     level = frame // stagger["flash_frames"]  # which of the flash's levels this frame is on
     flash = stagger["flash"][level] if shutter and level < len(stagger["flash"]) else 0.0
     return visible, variant, flash
-
-
-def snap_to_onsets(
-    freeze_at: float, hold: float, onsets: list[float], window: float = SNAP_WINDOW
-) -> tuple[float, float]:
-    """Move the freeze and the release onto music onsets, where one is close enough.
-
-    The freeze snaps to the onset nearest freeze_at, if one is within window seconds. The
-    release, which is the snapped freeze plus hold, then snaps the same way. An end with no onset
-    in reach stays where it was. Returns (freeze, hold) to use: the freeze, and the distance from
-    it to the release.
-    """
-    freeze = _nearest(freeze_at, onsets, window)
-    if freeze is None:
-        freeze = freeze_at
-    release = _nearest(freeze + hold, onsets, window)
-    if release is None:
-        return freeze, hold  # the release did not move, so the hold is exactly what came in
-    return freeze, release - freeze
-
-
-def _nearest(target: float, onsets: list[float], window: float) -> float | None:
-    """The onset closest to target, or None if none is within window seconds of it."""
-    reachable = [onset for onset in onsets if abs(onset - target) <= window]
-    return min(reachable, key=lambda onset: abs(onset - target), default=None)

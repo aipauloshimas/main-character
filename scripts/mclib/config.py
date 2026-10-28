@@ -66,13 +66,12 @@ TITLE_ROOM = 0.15625
 BOTTOM_BAND = 0.78125
 RAIL_LEFT, RAIL_TOP = 0.8704, 0.5
 
-# Timing controls. "freeze_at" is where the freeze lands in the output, "hold" how long the
-# card stays, "tail" how much clip plays after it (at most the rest of the clip; the default, the
+# Timing controls. "hold" is how long the card stays, "tail" how much clip plays after it (at most the
+# rest of the clip; the default, the
 # longest clip there is, plays all of it), "release_from" how far past the freeze
 # frame the clip resumes. "reveal" is "staggered" or "all". "boil" wobbles the card, and
 # "shutter" adds a click with a two-frame white flash on the freeze.
 TIMING_DEFAULTS = {
-    "freeze_at": 2.07,
     "hold": 3.0,
     "head_speed": 1.0,
     "tail": 30.0,
@@ -82,13 +81,11 @@ TIMING_DEFAULTS = {
     "shutter": False,
 }
 TIMING_RANGES = {
-    "freeze_at": (0.5, 5.0),
     "hold": (1.0, 6.0),
     "head_speed": (0.75, 1.5),
     "tail": (0.0, 30.0),
     "release_from": (0.0, 1.0),
 }
-MAX_FILL = 1.0  # the first frame may be held at most this long to fill the head
 
 # Card animation, in card frames at 30 fps (FPS); timeline.card_states turns them into frames of
 # the clip's own rate by time. The bottom notes are on at frame 0, the top notes at
@@ -97,7 +94,6 @@ MAX_FILL = 1.0  # the first frame may be held at most this long to fill the head
 # level of the shutter flash on the first two card frames.
 STAGGER = dict(top_after=2, arrows_after=5, out_before=6, boil_every=7, boil_variants=3, flash=(0.85, 0.40))
 
-SNAP_WINDOW = 0.5  # freeze and release snap to a music onset at most this far away
 CLIP_RANGE = (2.0, 30.0)  # shortest and longest clip accepted
 MIN_BITRATE = 10_000_000  # bits per second: a final render never encodes under 10 Mbps (Q1)
 CONTRAST_MIN = 3.0  # lowest text contrast (WCAG ratio) the style guard allows

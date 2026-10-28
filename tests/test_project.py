@@ -86,8 +86,9 @@ BAD_SETTINGS = [
     (("work", "width"), 0, "work"),
     (("freeze", "frame"), -1, "freeze.frame"),
     (("freeze", "suggested"), 62, "freeze.suggested"),
-    (("audio", "track"), 7, "audio.track"),
-    (("audio", "onsets"), "none", "audio.onsets"),
+    (("audio", "track"), "song.mp3", "audio.track"),  # the music is gone: a key nothing reads is refused
+    (("audio", "onsets"), [0.5], "audio.onsets"),
+    (("timing", "freeze_at"), 2.07, "timing.freeze_at"),
     (("audio", "original"), "yes", "audio.original"),
     (("audio", "original"), 1, "audio.original"),
     (("audio", "original"), None, "audio.original"),
@@ -128,7 +129,6 @@ def test_default_project_has_timing_defaults():
     assert p["schema"] == SCHEMA == 2
     # The numbers are written out here, so a wrong constant in config is caught.
     assert p["timing"] == {
-        "freeze_at": 2.07,
         "hold": 3.0,
         "head_speed": 1.0,
         "tail": 30.0,
@@ -157,7 +157,7 @@ def test_default_project_has_timing_defaults():
     assert project_file.empty_copy() == empty_copy and "hook" not in SOFT_LIMITS
     assert set(SOFT_LIMITS) == {"tl", "tr", "bl", "br", "name", "bubble"}
     assert p["freeze"] == {"frame": 0, "suggested": []}
-    assert p["audio"] == {"track": None, "onsets": [], "original": True}  # the clip's own sound stays by default
+    assert p["audio"] == {"original": True}  # the clip's own sound stays by default
     assert p["matte"] == {"detail": "auto", "edge": 0}
     assert p["positions"] == {"tl": None, "tr": None, "bl": None, "br": None, "burst": None}
     assert p["style_request"] is None
@@ -328,7 +328,7 @@ def test_a_project_of_schema_1_is_migrated_when_it_is_loaded(tmp_path):
 
 
 def test_load_adds_the_original_sound_setting_to_an_older_file(tmp_path):
-    # Before the clip kept its own sound, audio had only the track and its hits. An older file is read as a
+    # Before the clip kept its own sound, audio had only a track and its hits. An older file is read as a
     # project that keeps the clip's sound (that is the default), and a file that says Off stays Off
     folder = tmp_path / "older"
     p = make_project()
@@ -346,9 +346,50 @@ def test_load_adds_the_original_sound_setting_to_an_older_file(tmp_path):
 
     merged, _ = update(folder, {"audio": {"original": False}})
     assert merged["audio"]["original"] is False and load(folder)["audio"]["original"] is False
-    # a null in a patch deletes the key, and the file keeps the default, as it does for the track
+    # a null in a patch deletes the key, and the file keeps the default
     merged, _ = update(folder, {"audio": {"original": None}})
     assert merged["audio"]["original"] is True
+
+
+def test_load_drops_the_music_and_the_trend_timing_of_an_older_file(tmp_path):
+    # The skill makes only the freeze-frame effect now: the person adds the sound in their own app, and the
+    # freeze lands wherever the clip takes it. A file from before has audio.track, audio.onsets and
+    # timing.freeze_at. It loads without them, silently, and what else it holds is kept.
+    folder = tmp_path / "older"
+    p = make_project()
+    p["audio"] = {"track": "audio/song.mp3", "onsets": [0.5, 1.25], "original": False}
+    p["timing"]["freeze_at"] = 2.07
+    p["timing"]["hold"] = 4.0
+    folder.mkdir()
+    (folder / PROJECT_FILE).write_text(json.dumps(p), encoding="utf-8")
+
+    loaded = load(folder)
+
+    assert loaded["audio"] == {"original": False}
+    assert "freeze_at" not in loaded["timing"] and loaded["timing"]["hold"] == 4.0
+    assert validate(loaded) == []
+    assert "freeze_at" in json.loads((folder / PROJECT_FILE).read_text(encoding="utf-8"))["timing"]  # a read leaves the file
+
+    merged, warnings = update(folder, {"timing": {"hold": 5.0}})  # and the next save writes it without them
+    assert warnings == [] and merged["audio"] == {"original": False}
+    saved = json.loads((folder / PROJECT_FILE).read_text(encoding="utf-8"))
+    assert saved["audio"] == {"original": False} and "freeze_at" not in saved["timing"]
+
+
+def test_update_refuses_the_music_and_the_trend_timing(tmp_path):
+    # A patch that sets a removed key is an error, like any key the project does not read, and nothing is saved
+    save(tmp_path, make_project())
+    before = (tmp_path / PROJECT_FILE).read_text(encoding="utf-8")
+
+    for patch, named in [
+        ({"timing": {"freeze_at": 2}}, "timing.freeze_at"),
+        ({"audio": {"track": "song.mp3"}}, "audio.track"),
+        ({"audio": {"onsets": [1.0]}}, "audio.onsets"),
+    ]:
+        with pytest.raises(ValueError, match=named):
+            update(tmp_path, patch)
+
+    assert (tmp_path / PROJECT_FILE).read_text(encoding="utf-8") == before
 
 
 def test_load_drops_the_title_of_an_older_file(tmp_path):
@@ -501,10 +542,10 @@ def test_update_applies_the_patch_then_the_function_and_saves(tmp_path):
     assert project["copy"]["name"] == "Pauli" and project["picked"] == "B" and project["matte"]["detail"] == "high"
     assert load(tmp_path) == project
 
-    # A null in the patch deletes the key, and the music track stays in the file as a null, as the studio keeps it
-    update(tmp_path, {"audio": {"track": "music.mp3"}})
-    update(tmp_path, {"picked": None, "audio": {"track": None}})
-    assert "picked" not in load(tmp_path) and load(tmp_path)["audio"]["track"] is None
+    # A null in the patch deletes the key
+    update(tmp_path, {"picked": "A"})
+    update(tmp_path, {"picked": None})
+    assert "picked" not in load(tmp_path)
 
 
 def test_update_returns_the_warnings_of_validate(tmp_path):
@@ -604,7 +645,6 @@ def test_update_takes_the_update_lock(tmp_path):
 def test_validate_rejects_out_of_range_timing():
     # The ranges are written out here, so a loose range in config is caught.
     assert config.TIMING_RANGES == {
-        "freeze_at": (0.5, 5.0),
         "hold": (1.0, 6.0),
         "head_speed": (0.75, 1.5),
         "tail": (0.0, 30.0),
@@ -649,7 +689,7 @@ def test_validate_rejects_out_of_range_timing():
     p["layout"], p["picked"] = "portrait", "C"
     p["matte"] = {"detail": "max", "edge": -4}
     p["positions"]["tl"] = [120, 80.5]
-    p["audio"] = {"track": "song.mp3", "onsets": [0.5, 1.25]}
+    p["audio"] = {"original": False}
     assert validate(p) == []
 
     # A missing section is named.

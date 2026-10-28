@@ -52,32 +52,14 @@ def blocks_png(colors=BLOCKS, size=(64, 64)) -> bytes:
     return png_bytes(Image.fromarray(pixels))
 
 
-def clicks_wav(hits=(0.5, 1.5, 2.5), seconds=3.0, sr=22050) -> bytes:
-    """A mono 16-bit WAV with a short loud burst at each time in `hits` on a very quiet floor."""
-    import wave
-
-    rng = np.random.default_rng(3)
-    samples = rng.normal(0, 0.002, int(seconds * sr))
-    for at in hits:
-        start = int(at * sr)
-        samples[start : start + 700] += rng.normal(0, 0.6, 700)
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as out:
-        out.setnchannels(1)
-        out.setsampwidth(2)
-        out.setframerate(sr)
-        out.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
-    return buffer.getvalue()
-
-
-def make_result(folder, preview=False, warning=None) -> RenderResult:
+def make_result(folder, preview=False) -> RenderResult:
     """What render.render returns, for a fake that wrote nothing."""
     renders = Path(folder) / "renders"
     if preview:
-        return RenderResult(renders / "preview.mp4", None, None, 10, 2.0, 5.0, warning, [])
+        return RenderResult(renders / "preview.mp4", None, 10, 2.0, 5.0, [])
     return RenderResult(
-        renders / "synthetic-main-character.mp4", None, renders / "synthetic-cover.png", 10, 2.0, 5.0,
-        warning, ["Rendered at 3840x2026; your clip is 4096x2160, bigger than 4K."],
+        renders / "synthetic-main-character.mp4", renders / "synthetic-cover.png", 10, 2.0, 5.0,
+        ["Rendered at 3840x2026; your clip is 4096x2160, bigger than 4K."],
     )
 
 
@@ -230,11 +212,12 @@ def test_nullable_keys_can_be_deleted_by_a_patch(server):
     project_file.save(server.dir, outside)
     assert server.get("/api/project").json()["style_request"] == request
 
-    # The music track goes away by a patch, and render reads it as project["audio"]["track"]
-    assert server.post("/api/project", {"audio": {"track": None}}).status == 200
-    assert server.project()["audio"]["track"] is None
+    # There is no music: a patch that sets a track, its beats or the trend's freeze time is refused
+    for patch in ({"audio": {"track": "song.mp3"}}, {"audio": {"onsets": [1.0]}}, {"timing": {"freeze_at": 2}}):
+        assert server.post("/api/project", patch).status == 400, patch
+    assert server.project()["audio"] == {"original": True} and "freeze_at" not in server.project()["timing"]
 
-    # The Sound switch edits audio.original, and leaves the track alone; anything but a bool is refused
+    # The Sound switch edits audio.original; anything but a bool is refused
     assert server.project()["audio"]["original"] is True
     assert server.post("/api/project", {"audio": {"original": False}}).status == 200
     assert server.project()["audio"]["original"] is False
@@ -358,7 +341,8 @@ def test_options_have_what_the_page_builds_its_controls_from(server):
     assert options["roles"] == list(recipes.ROLES)
     assert options["soft_limits"] == project_file.SOFT_LIMITS
     assert options["soft_limits"] == {"tl": 30, "tr": 24, "bl": 34, "br": 30, "name": 16, "bubble": 14}  # no limit for a title
-    assert options["timing"]["defaults"]["freeze_at"] == config.TIMING_DEFAULTS["freeze_at"]
+    assert options["timing"]["defaults"] == config.TIMING_DEFAULTS and "freeze_at" not in options["timing"]["defaults"]
+    assert "freeze_at" not in options["timing"]["ranges"]
     assert options["timing"]["ranges"]["hold"] == [1.0, 6.0]
 
 
@@ -686,7 +670,7 @@ def test_a_file_over_the_limit_is_refused_and_nothing_is_kept(server, monkeypatc
     assert refused.status == 400 and refused.json() == {"error": "That is too big: the limit is 2 MB."}
     refs = server.dir / "refs"
     assert not refs.exists() or not any(refs.iterdir())  # neither the file nor a temporary one
-    chunked = server.request("POST", "/api/audio", body=b"x", headers={"Transfer-Encoding": "chunked", "X-Filename": "a.wav"})
+    chunked = server.request("POST", "/api/style/reference", body=b"x", headers={"Transfer-Encoding": "chunked", "X-Filename": "a.png"})
     assert chunked.status == 400 and "length" in chunked.json()["error"]
 
 
@@ -708,24 +692,12 @@ def test_uploads_wait_out_a_file_lock(server, monkeypatch):
     assert (server.dir / "refs" / "look.png").read_bytes() == b"look"
 
 
-def test_audio_upload_stores_the_track_and_its_beats(server):
-    reply = server.post(
-        "/api/audio", raw=clicks_wav(), headers={"X-Filename": "my%20beat.wav", "Content-Type": "audio/wav"}
-    )
+def test_there_is_no_route_to_upload_music(server):
+    reply = server.post("/api/audio", raw=b"RIFF", headers={"X-Filename": "beat.wav", "Content-Type": "audio/wav"})
 
-    assert reply.status == 200
-    answer = reply.json()
-    saved = server.project()["audio"]
-    assert saved["track"] == "audio/my beat.wav" and (server.dir / saved["track"]).is_file()
-    assert saved["onsets"] == answer["onsets"] and len(saved["onsets"]) == 3
-    assert [round(hit, 1) for hit in saved["onsets"]] == pytest.approx([0.5, 1.5, 2.5], abs=0.1)
-    assert answer["project"]["audio"] == saved
-
-    # Something that is not sound is refused, and nothing is kept
-    bad = server.post("/api/audio", raw=b"not audio at all", headers={"X-Filename": "bad.mp3"})
-    assert bad.status == 400 and bad.json()["error"]
-    assert not (server.dir / "audio" / "bad.mp3").exists()
-    assert server.project()["audio"] == saved
+    assert reply.status in (404, 405)
+    assert not (server.dir / "audio").exists()
+    assert "track" not in server.project()["audio"]
 
 
 # --- the cutout, the format and the renders -----------------------------------------------------
@@ -777,7 +749,7 @@ def test_preview_and_render(server):
 
     assert preview.status == 200
     answer = preview.json()
-    assert answer["url"] == "/renders/preview.mp4" and answer["warning"] is None
+    assert answer["url"] == "/renders/preview.mp4" and "warning" not in answer
     video = server.get(answer["url"])
     assert video.status == 200 and video.headers["content-type"] == "video/mp4" and len(video.body) > 1000
     assert server.project()["status"] == first  # a preview leaves the project alone
@@ -789,7 +761,7 @@ def test_preview_and_render(server):
     assert final.status == 200
     body = final.json()
     names = [Path(output).name for output in body["outputs"]]
-    assert names == ["synthetic-main-character.mp4", "synthetic-cover.png"] and "warning" in body
+    assert names == ["synthetic-main-character.mp4", "synthetic-cover.png"] and "warning" not in body
     saved = server.project()["status"]
     assert saved["outputs"] == body["outputs"] and saved["rendered_at"]
     assert STAMP.fullmatch(saved["done_at"]) and wait.parse_time(saved["done_at"]) > started
@@ -1026,14 +998,12 @@ def test_json_routes_need_json_and_upload_routes_keep_their_own_types(server):
     for kind in ("application/json", "Application/JSON", "application/json; charset=utf-8"):
         assert server.request("POST", "/api/project", body=b"{}", headers={"Content-Type": kind}).status == 200
 
-    # The raw routes take pictures and sound, with their own content types (or none)
+    # The raw routes take pictures, with their own content types (or none)
     for kind in ("image/png", "application/octet-stream", None):
         sent = server.post("/api/palette", raw=blocks_png(), headers={"Content-Type": kind} if kind else {})
         assert sent.status == 200, kind
     look = server.post("/api/style/reference", raw=b"look", headers={"Content-Type": "image/png", "X-Filename": "a.png"})
     assert look.status == 200
-    beat = server.post("/api/audio", raw=clicks_wav(), headers={"Content-Type": "audio/wav", "X-Filename": "b.wav"})
-    assert beat.status == 200
 
 
 # --- starting the server ----------------------------------------------------------------------

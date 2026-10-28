@@ -606,8 +606,8 @@ def test_init_and_render_keep_a_23_976_fps_clip_exact(synthetic_clip_ntsc, tmp_p
     assert len(jpegs(folder / "frames")) == len(pngs(folder / "matte")) == 48
 
     # a short card, and the freeze on a frame with some clip before it
-    project["freeze"]["frame"] = 40
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.0)
+    project["freeze"]["frame"] = 12
+    project["timing"].update(hold=1.0, tail=0.0)
     project_file.save(folder, project)
     result = render.render(folder, matte_runner=fake_matte())
 
@@ -619,7 +619,7 @@ def test_init_and_render_keep_a_23_976_fps_clip_exact(synthetic_clip_ntsc, tmp_p
     assert rate.strip() == "24000/1001"
     assert result.frames == media.count_frames(result.video) == 12 + 24
     assert result.freeze_out == pytest.approx(12 * 1001 / 24000)
-    assert result.notes == [] and result.warning is None
+    assert result.notes == []
 
 
 @pytest.mark.slow
@@ -633,8 +633,8 @@ def test_init_and_render_a_portrait_clip_in_its_own_format(tmp_path, fake_matte)
     assert project["clip"]["orientation"] == "portrait" and warnings == []
     assert sizes(jpegs(folder / "frames")) == sizes(pngs(folder / "matte")) == {(1080, 1920)}
 
-    project["freeze"]["frame"] = 15
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.3)
+    project["freeze"]["frame"] = 5
+    project["timing"].update(hold=1.0, tail=0.3)
     project_file.save(folder, project)
     scaled_up = ["Scaled up to 1080x1920 so the notes stay sharp; your clip is 540x960."]
 
@@ -644,7 +644,7 @@ def test_init_and_render_a_portrait_clip_in_its_own_format(tmp_path, fake_matte)
     assert preview.frames == media.count_frames(preview.video) == 5 + 10 + 3
     info = media.probe(preview.video)
     assert (info["width"], info["height"], info["fps"]) == (1080, 1920, 10.0)
-    assert preview.warning is None and preview.notes == scaled_up
+    assert preview.notes == scaled_up
 
     # and the final render of a 540x960 clip is scaled up to 1080 wide, which is the plan's size too, so
     # the freeze frame it is drawn on is the project's own (no cutout is made again)
@@ -673,7 +673,8 @@ def test_a_rotated_phone_clip_is_laid_out_and_rendered_at_its_display_size(
     assert (project["layout"], project["work"]) == ("portrait", {"width": 1080, "height": 1920})
     assert sizes(jpegs(folder / "frames")) == sizes(pngs(folder / "matte")) == {(1080, 1920)}
 
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.0, boil=False)  # a short render
+    project["freeze"]["frame"] = 15  # half a second in, for a short render
+    project["timing"].update(hold=1.0, tail=0.0, boil=False)
     project_file.save(folder, project)
     result = render.render(folder, matte_runner=fake_matte())
 

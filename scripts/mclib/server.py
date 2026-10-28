@@ -56,7 +56,7 @@ from uuid import uuid4
 
 from PIL import Image
 
-from . import card, config, matte, onsets, palette, pipeline, render
+from . import card, config, matte, palette, pipeline, render
 from . import project as project_file
 from .config import FONTS_DIR, STUDIO_DIR
 from .fileio import retry_locked
@@ -67,7 +67,7 @@ FIRST_PORT = 8340  # serve takes the first free port from here
 PORT_TRIES = 100
 CHUNK = 256 * 1024  # bytes of a file sent, or of an upload read, at a time
 MAX_JSON = 4 * 1024 * 1024
-MAX_UPLOAD = 1024 * 1024 * 1024  # a music track, or a picture from a camera
+MAX_UPLOAD = 1024 * 1024 * 1024  # a picture from a camera
 
 BUSY = "A render is already running."
 REBUILDING = "The cutout is being rebuilt. Try again in a moment."
@@ -196,7 +196,6 @@ class Studio:
             mutate(merged)
         audio = merged.get("audio")
         if isinstance(audio, dict):
-            audio.setdefault("track", None)  # a null in a patch deleted it, and render reads audio["track"]
             audio.setdefault("original", True)  # a null here puts the default back: the clip keeps its sound
         warnings = project_file.validate(merged)
         if patch and isinstance(patch.get("freeze"), dict) and "frame" in patch["freeze"]:
@@ -234,18 +233,17 @@ class Studio:
     def preview(self) -> dict:
         with self.job():
             result = render.render(self.dir, preview=True, matte_runner=self.matte_runner)
-        return {"url": "/renders/" + result.video.name, "warning": result.warning, "notes": result.notes}
+        return {"url": "/renders/" + result.video.name, "notes": result.notes}
 
     def render_final(self) -> dict:
         """Render, then stamp status.done_at, which is what wakes the waiter with DONE. The stamp is
         written after the render has saved its own status, and to the file as it is then."""
         with self.job():
             result = render.render(self.dir, matte_runner=self.matte_runner)
-            made = (result.video, result.with_music, result.cover)
-            outputs = [f"renders/{path.name}" for path in made if path is not None]
+            outputs = [f"renders/{path.name}" for path in (result.video, result.cover)]
             done = now_stamp()
             self.update(mutate=lambda project: project["status"].update(done_at=done))
-        return {"outputs": outputs, "warning": result.warning, "notes": result.notes, "done_at": done}
+        return {"outputs": outputs, "notes": result.notes, "done_at": done}
 
     def refine(self, detail: str) -> dict:
         """Cut the person out again around the freeze frame at a finer detail: the frames from 12
@@ -420,13 +418,6 @@ class Studio:
 
     # --- uploads ------------------------------------------------------------------------------
 
-    def keep_track(self, saved: Path, hits: list[float]) -> dict:
-        """Put an uploaded music track into the project: the track (a path inside the project folder)
-        and the times of its hits."""
-        track = saved.relative_to(self.dir).as_posix()
-        project, warnings = self.update(mutate=lambda p: p["audio"].update(track=track, onsets=hits))
-        return {"project": project, "warnings": warnings, "onsets": hits}
-
 
 def _stamp(path: Path) -> tuple[int, int]:
     """When a file was last written and its size: a change to either is a new picture."""
@@ -488,7 +479,6 @@ _ROUTES = {
     ("POST", "/api/style/reference"): "_post_reference",
     ("POST", "/api/style/ask"): "_post_ask",
     ("POST", "/api/matte/refine"): "_post_refine",
-    ("POST", "/api/audio"): "_post_audio",
     ("POST", "/api/preview"): "_post_preview",
     ("POST", "/api/render"): "_post_render",
 }
@@ -823,20 +813,10 @@ class _Handler(BaseHTTPRequestHandler):
         body = self._json_body()
         self._send_json(200, self.studio.ask_for_a_style(body.get("text"), body.get("image")))
 
-    # --- routes: the cutout, the music --------------------------------------------------------
+    # --- routes: the cutout -------------------------------------------------------------------
 
     def _post_refine(self, split) -> None:
         self._send_json(200, self.studio.refine(self._json_body().get("detail")))
-
-    def _post_audio(self, split) -> None:
-        temp, dest = self._receive("audio", "track")
-        try:
-            # (MediaError, a sentence, when it is not sound.) Read before it replaces the old track
-            hits = onsets.detect_onsets(onsets.load_audio_mono(temp))
-            self._keep(temp, dest)
-        finally:
-            temp.unlink(missing_ok=True)
-        self._send_json(200, self.studio.keep_track(dest, hits))
 
     # --- routes: the renders ------------------------------------------------------------------
 

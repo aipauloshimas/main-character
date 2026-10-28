@@ -21,8 +21,8 @@ Three files, in `main-character/<your clip>/renders/`:
 
 The video keeps your clip's own sound (mute it in the studio with Original sound) and has no title, so you can
 add the trending sound and your title in Instagram or TikTok. The sound is silent while the card is up, and comes
-back in step with you when the video lets go. With the default timing, the freeze lands at 2.07 s, right on its hit. Upload your own track in the studio and you
-also get `<clip>-with-music.mp4`.
+back in step with you when the video lets go. The studio's Timing tab tells you the second the freeze lands, so
+you can line your sound up with it.
 
 ## Requirements
 

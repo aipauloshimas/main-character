@@ -245,3 +245,21 @@ def test_skill_md_keeps_the_clips_own_sound_and_picks_the_version_in_the_chat():
     step7 = text[text.index("## 7. Open the studio"):text.index("## 8. On STYLE")]
     assert "which one they want" in step7 and "`copy` is the chosen version" in step7
     assert "pick a version and edit" not in text
+
+
+def test_skill_md_and_readme_have_no_music_and_no_trend_timing():
+    # The skill only makes the freeze-frame effect. The person adds the sound in their own app, so there is
+    # no track to upload, no with-music file, and no second that the freeze is meant to land on
+    text, readme = skill_text(), (SKILL.parent / "README.md").read_text(encoding="utf-8")
+    notes = (SKILL.parent / "LICENSE-NOTES.md").read_text(encoding="utf-8")
+
+    for name, words in (("SKILL.md", text), ("README.md", readme)):
+        for gone in ("2.07", "with-music", "freeze_at", "audio.track", "onsets", "upload your own track"):
+            assert gone not in words, (name, gone)
+    assert "with-music" not in notes and "upload their own" not in notes
+    # the rule says it plainly, and step 9 tells the person the second the freeze lands
+    assert "- **No music.** Never download or add any: the person adds the sound in their own app." in text
+    step9 = text[text.index("## 9. On DONE"):text.index("## Style recipes")]
+    assert "`status.freeze_out`" in step9 and "the freeze lands at" in step9
+    # and the title of the trend, in the caption, is the format's name and stays
+    assert '"this is your sign to"' in step9

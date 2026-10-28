@@ -634,7 +634,7 @@ def _fade_out(duration: float, seconds: float) -> str:
 
 
 def mux_audio(video: Path, audio: Path, out: Path, fade_out: float = _FADE_OUT) -> None:
-    """Add sound to a video. The picture is copied as it is. The sound is the first audio track
+    """Add sound to a video. The picture is copied as it is. The sound is the first audio stream
     of audio, encoded as AAC 192k, cut to the length of the video and faded out over its last
     fade_out seconds (no fade when that is 0)."""
     duration = _duration(video)
@@ -646,29 +646,29 @@ def mux_audio(video: Path, audio: Path, out: Path, fade_out: float = _FADE_OUT) 
 
 
 def mix_click(
-    video: Path, click: Path, at: float, out: Path, music: Path | None = None,
+    video: Path, click: Path, at: float, out: Path, under: Path | None = None,
     fade_out: float = _FADE_OUT,
 ) -> None:
-    """Add sound to a video: the click sound starting at "at" seconds, over the music when there
-    is any. The picture is copied as it is. The sound is padded or cut to the length of the video
-    and encoded as AAC 192k. The music is cut to the video, not turned down, and fades out over
-    its last fade_out seconds (0.4 s, like the sound mux_audio makes, so the ending is the same
-    with a click or not; none when fade_out is 0, for a sound that has faded already, such as
-    clip_sound's). The mix lasts as long as the longer of the two, so a track that ends before the
-    click does not take the click with it.
+    """Add sound to a video: the click sound starting at "at" seconds, over the sound `under` when
+    there is one (the clip's own). The picture is copied as it is. The sound is padded or cut to the
+    length of the video and encoded as AAC 192k. `under` is cut to the video, not turned down, and
+    fades out over its last fade_out seconds (0.4 s, like the sound mux_audio makes, so the ending
+    is the same with a click or not; none when fade_out is 0, for a sound that has faded already,
+    such as clip_sound's). The mix lasts as long as the longer of the two, so a sound that ends
+    before the click does not take the click with it.
     """
     duration = _duration(video)
     whole = f"apad=whole_dur={duration:.6f}"
     inputs = ["-i", str(video), "-i", str(click)]
     graph = f"[1:a]adelay={round(at * 1000)}:all=1[click]"
-    if music is None:
+    if under is None:
         graph += f";[click]{whole}[sound]"
     else:
-        inputs += ["-i", str(music)]
+        inputs += ["-i", str(under)]
         fade = f",{_fade_out(duration, fade_out)}" if fade_out > 0 else ""
         graph += (
-            f";[2:a]atrim=end={duration:.6f}{fade}[music]"
-            f";[music][click]amix=inputs=2:duration=longest:normalize=0,{whole}[sound]"
+            f";[2:a]atrim=end={duration:.6f}{fade}[under]"
+            f";[under][click]amix=inputs=2:duration=longest:normalize=0,{whole}[sound]"
         )
     run([
         *inputs, "-filter_complex", graph, "-map", "0:v:0", "-map", "[sound]", "-c:v", "copy",
@@ -697,15 +697,14 @@ def clip_sound(clip: Path, segments, fps: Fraction | int | float, out: Path) -> 
     segments are the timeline's (timeline.Segment), in order, and fps the rate the video is counted
     in (see output_fps). The sound follows them one by one:
 
-    - a "fill" or a "card" is silence for frames / fps seconds: the held first frame and the card
-      have no sound of their own;
+    - a "card" is silence for frames / fps seconds: the card has no sound of its own;
     - a "clip" is the clip's sound from the segment's src_start, for frames * speed / fps seconds of
       the clip, played at the segment's speed (atempo, which changes the speed and leaves the pitch
       alone), so that it lasts frames / fps seconds, as the picture does. The tail therefore starts
       at its own source time, and the sound comes back in step with the picture when the card lets go.
       A piece of the clip fades in and out over 10 ms, so that a cut does not click.
 
-    The whole sound fades out over its last 0.4 s, like the music does, and is padded or cut to
+    The whole sound fades out over its last 0.4 s, and is padded or cut to
     exactly total frames / fps seconds, the length of the video (a clip whose sound is shorter than
     its picture is padded with silence). The tail of a clip with a different length of sound and
     picture is therefore never a frame off the picture.

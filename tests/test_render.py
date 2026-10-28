@@ -2,7 +2,7 @@
 the render owes the quality of the clip (its frame rate, one lossy encode, its bitrate, its size, the notes).
 
 The fake project (conftest) is a 4 s, 30 fps clip of 1920x1080 frozen on frame 60, so a default render
-is 212 frames: 2 of the first frame held, 60 of clip, 90 of card and 60 of tail (the rest of the clip). Its video is the clip's
+is 210 frames: 60 of clip (from its first frame to the freeze), 90 of card and 60 of tail (the rest of the clip). Its video is the clip's
 own frame, 1920x1080, with nothing around it (a preview is at the plan's size, 1080x608). Several tests
 look at one render of it, made once (rendered). The others change something first and render again,
 usually with a short timeline (small) because a render is the slow part of a test.
@@ -20,7 +20,6 @@ import subprocess
 import sys
 import threading
 import time
-import wave
 from datetime import datetime, timedelta, timezone
 from fractions import Fraction
 from pathlib import Path
@@ -140,31 +139,6 @@ def closest(frame, candidates):
     return min(gaps, key=gaps.get), gaps
 
 
-def sine_track(path, seconds=5):
-    """A mono WAV of a 440 Hz sine, made by ffmpeg."""
-    subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
-         f"sine=frequency=440:sample_rate={SOUND_RATE}:duration={seconds}", str(path)],
-        check=True, capture_output=True,
-    )
-    return path
-
-
-def track_with_hits(path, times, seconds=4):
-    """A mono WAV that is silent except for a short burst of noise at each of these times."""
-    track = np.zeros(seconds * SOUND_RATE)
-    noise = np.random.default_rng(3).uniform(-1, 1, int(0.08 * SOUND_RATE))
-    for at in times:
-        start = int(at * SOUND_RATE)
-        track[start:start + noise.size] = noise * np.exp(-np.arange(noise.size) / SOUND_RATE / 0.02)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(SOUND_RATE)
-        handle.writeframes(np.rint(track * 0.8 * 32767).astype("<i2").tobytes())
-    return path
-
-
 def mono_samples(path):
     """The sound of a file as mono floats at 44.1 kHz, decoded by ffmpeg."""
     raw = path.with_suffix(".pcm")
@@ -178,11 +152,12 @@ def peak(samples, start, end):
 
 
 def small(folder, project, **clip):
-    """Shorten the project's timeline, so that a render of it is quick: the freeze at 0.5 s, a card
-    of 1 s and no tail, and no boil (one stage drawn, not three). With the freeze on frame 60, that is
-    15 frames of clip then 30 of card. Keyword arguments set keys of the project's clip. The project
-    is saved and returned."""
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.0, boil=False)
+    """Shorten the project's timeline, so that a render of it is quick: the freeze on frame 15 (0.5 s
+    into the clip), a card of 1 s and no tail, and no boil (one stage drawn, not three). That is 15
+    frames of clip then 30 of card. Keyword arguments set keys of the project's clip. The project is
+    saved and returned."""
+    freeze_on(folder, project, 15)
+    project["timing"].update(hold=1.0, tail=0.0, boil=False)
     project["clip"].update(clip)
     project_file.save(folder, project)
     return project
@@ -210,11 +185,9 @@ def rendered(tmp_path_factory, project_maker, fake_matte):
 @pytest.fixture(scope="module")
 def small_final(tmp_path_factory, project_maker, fake_matte):
     """A short final render of a project whose clip is said to have a bitrate of 20 Mbps, and which has
-    a music track but no shutter click. Its result, its ffmpeg calls and its progress calls are kept, as
+    no shutter click. Its result, its ffmpeg calls and its progress calls are kept, as
     (Rendered, progress)."""
     folder, project = project_maker(tmp_path_factory.mktemp("small_final"))
-    track = sine_track(folder / "track.wav")
-    project["audio"]["track"] = str(track)
     small(folder, project, bit_rate=20_000_000)
     progress = []
     with pytest.MonkeyPatch.context() as patch:
@@ -230,14 +203,14 @@ def small_final(tmp_path_factory, project_maker, fake_matte):
 def test_render_frame_count_and_size(rendered):
     result, folder, project, _ = rendered
 
-    assert media.count_frames(result.video) == 212  # 2 held + 60 of clip + 90 of card + 60 of tail (the rest of the clip)
+    assert media.count_frames(result.video) == 210  # 60 of clip + 90 of card + 60 of tail (the rest of the clip)
     info = media.probe(result.video)
     assert (info["width"], info["height"], info["fps"]) == (1920, 1080, 30.0)  # the clip's own frame
-    assert result.frames == 212
+    assert result.frames == 210
     assert result.video == folder.resolve() / "renders" / "synthetic-main-character.mp4"
-    assert result.freeze_out == pytest.approx(62 / 30)
-    assert result.release_out == pytest.approx(152 / 30)
-    assert (result.warning, result.notes, result.with_music) == (None, [], None)
+    assert result.freeze_out == pytest.approx(60 / 30)
+    assert result.release_out == pytest.approx(150 / 30)
+    assert result.notes == []
 
     # H.264 in yuv420p, with the clip's own sound (see the tests of the sound), tagged BT.709 limited range,
     # and nothing left in _work
@@ -253,15 +226,15 @@ def test_render_card_segment_matches_card_png(rendered, tmp_path, fake_matte):
     # the card of the render was drawn on the freeze frame cut at the size of the video
     source = frozen(folder, project, tmp_path, fake_matte)
     states = card_states(90, "staggered", True)
-    # CardState.start counts from the card's first frame, so the video's frame is 62 more
+    # CardState.start counts from the card's first frame, so the video's frame is 60 more
     first_card_frame = round(result.freeze_out * 30)
-    assert first_card_frame == 62
+    assert first_card_frame == 60
 
-    # Card frame 10 is output frame 72: every note is on, and the boil is on its second picture
+    # Card frame 10 is output frame 70: every note is on, and the boil is on its second picture
     state = next(s for s in states if s.start <= 10 < s.start + s.frames)
     assert (state.visible, state.variant) == (ALL_VISIBLE, 1)
     expected = card_rgb(folder, project, state.visible, state.variant, state.flash, OUT, source)
-    assert distance(frame_rgb(result.video, 72), expected) < 0.02
+    assert distance(frame_rgb(result.video, 70), expected) < 0.02
 
     # The notes come in by the stagger and go out before the card does: at card frames 1, 3, 10
     # and 86 the video is closest to the card with those notes on, out of the four that exist
@@ -283,9 +256,9 @@ def test_render_preview_is_at_the_plans_size(fake_project):
     # the plan's size, 1080x608, made fast (and no cutout at the video's size: it needs no model)
     info = media.probe(result.video)
     assert (info["width"], info["height"], info["fps"]) == (1080, 608, 30.0)
-    assert info["frames"] == result.frames == 212
+    assert info["frames"] == result.frames == 210
     assert result.video == folder.resolve() / "renders" / "preview.mp4"
-    assert (result.cover, result.with_music) == (None, None)
+    assert result.cover is None
     # Nothing but the preview (and the render lock's file) is written, and the project is not touched
     assert sorted(path.name for path in (folder / "renders").iterdir()) == [".render-lock", "preview.mp4"]
     assert project_file.load(folder) == before
@@ -307,48 +280,36 @@ def test_render_writes_cover_and_status(rendered, tmp_path, fake_matte):
         "renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
     assert all((folder / path).is_file() for path in status["outputs"])
     # It records its own moments too, in seconds, so that whoever checks the video knows where to look
-    assert status["freeze_out"] == result.freeze_out == pytest.approx(62 / 30)
-    assert status["release_out"] == result.release_out == pytest.approx(152 / 30)
+    assert status["freeze_out"] == result.freeze_out == pytest.approx(60 / 30)
+    assert status["release_out"] == result.release_out == pytest.approx(150 / 30)
     when = datetime.fromisoformat(status["rendered_at"])
     assert when.utcoffset() == timedelta(0)  # UTC, and it says so
     assert abs(datetime.now(timezone.utc) - when) < timedelta(minutes=30)
     assert status["done_at"] is None  # that is the studio's, not the render's
 
 
-def test_render_with_music_and_shutter(fake_project, fake_matte, tmp_path):
+def test_render_with_shutter(fake_project, fake_matte):
     folder, project = fake_project
-    project["audio"]["track"] = str(sine_track(tmp_path / "track.wav", seconds=5))
     project["timing"]["shutter"] = True
     project["audio"]["original"] = False  # (the clip's own sound is tested apart: here the video has the click alone)
     project_file.save(folder, project)
 
     result = render.render(folder, matte_runner=fake_matte())
 
-    assert result.with_music == folder.resolve() / "renders" / "synthetic-with-music.mp4"
-    assert result.frames == 212 and media.count_frames(result.with_music) == 212
+    assert result.frames == 210
     assert project_file.load(folder)["status"]["outputs"] == [
-        "renders/synthetic-main-character.mp4", "renders/synthetic-with-music.mp4",
-        "renders/synthetic-cover.png"]
+        "renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
 
-    # The video without music has a sound: the click, 120 ms of it on the freeze (frame 62, 2.07 s)
+    # The video has a sound: the click, 120 ms of it on the freeze (frame 60, 2.0 s)
     (audio,) = ffprobe(result.video, "codec_name", stream="a")
     assert audio["codec_name"] == "aac"
     clicked = mono_samples(result.video)
-    assert peak(clicked, 2.06, 2.19) > 0.5
-    assert peak(clicked, 0.0, 2.0) < 0.01 and peak(clicked, 2.3, 6.2) < 0.01
+    assert peak(clicked, 1.99, 2.12) > 0.5
+    assert peak(clicked, 0.0, 1.9) < 0.01 and peak(clicked, 2.3, 6.9) < 0.01
 
-    # and the music version has the track too (a 440 Hz sine, faded out at the end), the click on top
-    (audio,) = ffprobe(result.with_music, "codec_name,duration", stream="a")
-    assert audio["codec_name"] == "aac"
-    assert float(audio["duration"]) == pytest.approx(212 / 30, abs=0.1)
-    music = mono_samples(result.with_music)
-    assert 0.05 < rms(music, 0.2, 0.4) < 0.12 and peak(music, 0.2, 0.4) < 0.2  # the sine, 1/8 of full scale
-    assert peak(music, 2.06, 2.19) > 0.5  # and the click over it
-    assert rms(music, 6.0, 6.2) < 0.3 * rms(music, 0.2, 0.4)  # faded out at the end
-
-    # The two-frame white flash: card frames 0 and 1 (output 62 and 63) are the card blended with white, at 0.85
-    # and 0.40, and then it is gone (frame 64 is the card as it is, and 61 is the clip's last frame)
-    means = [frame_rgb(result.video, number).mean() for number in (61, 62, 63, 64)]
+    # The two-frame white flash: card frames 0 and 1 (output 60 and 61) are the card blended with white, at 0.85
+    # and 0.40, and then it is gone (frame 62 is the card as it is, and 59 is the clip's last frame)
+    means = [frame_rgb(result.video, number).mean() for number in (59, 60, 61, 62)]
     plain = means[3]
     assert means[1] == pytest.approx(0.85 + 0.15 * plain, abs=0.03), means
     assert means[2] == pytest.approx(0.40 + 0.60 * plain, abs=0.03), means
@@ -367,22 +328,22 @@ def audio_duration(path):
 def test_the_video_keeps_the_clips_own_sound_and_the_card_is_silent(rendered):
     result, *_ = rendered
 
-    # one sound as long as the video (212 frames, 7.07 s), within a frame
-    assert audio_duration(result.video) == pytest.approx(212 / 30, abs=1 / 30)
+    # one sound as long as the video (210 frames, 7.0 s), within a frame
+    assert audio_duration(result.video) == pytest.approx(210 / 30, abs=1 / 30)
     sound = mono_samples(result.video)
     tone = 0.125 / 2 ** 0.5  # the clip's sine is at 1/8 of full scale, so this is its rms
-    # the head (the clip from 0 to 2.0 s, after 2 frames of the held first frame) and the tail (the clip
-    # from 2.0 s on, after the card) are the clip's sound, and the card (2.07 s to 5.07 s) is silent
+    # the head (the clip from 0 to 2.0 s) and the tail (the clip from 2.0 s on, after the card) are the
+    # clip's sound, and the card (2.0 s to 5.0 s) is silent
     assert rms(sound, 0.3, 1.9) == pytest.approx(tone, rel=0.2)
     assert rms(sound, 2.2, 4.9) < 0.001
     assert rms(sound, 5.2, 6.7) == pytest.approx(tone, rel=0.2)
-    assert rms(sound, 6.9, 7.05) < 0.5 * tone  # and it fades out with the video
+    assert rms(sound, 6.85, 6.98) < 0.5 * tone  # and it fades out with the video
 
 
 def test_the_video_has_no_sound_when_the_original_is_off(fake_project, fake_matte):
     folder, project = fake_project
     small(folder, project)
-    project["audio"]["original"] = False  # and no shutter click, and no track: nothing to hear
+    project["audio"]["original"] = False  # and no shutter click: nothing to hear
     project["timing"]["shutter"] = False
     project_file.save(folder, project)
 
@@ -465,33 +426,33 @@ def test_the_head_at_a_speed_has_sound_as_long_as_its_picture(fake_project, fake
     assert rms(sound, result.freeze_out + 0.1, frames / 30 - 0.05) < 0.001  # and the card is silent
 
 
-def test_the_with_music_file_has_the_music_and_not_the_clips_sound(fake_project, fake_matte, tmp_path):
+def test_a_freeze_early_in_the_clip_just_lands_early(fake_project, fake_matte):
     folder, project = fake_project
-    small(folder, project)
-    project["audio"]["track"] = str(track_with_hits(tmp_path / "hits.wav", [1.2], seconds=4))
-    project["audio"]["onsets"] = [1.2]
-    project["timing"]["shutter"] = False
-    project_file.save(folder, project)
-
-    result = render.render(folder, matte_runner=fake_matte())
-
-    music = mono_samples(result.with_music)
-    assert rms(music, 0.1, 0.45) < 0.001  # the track is silent here, and the clip's sound is not in this file
-    video = mono_samples(result.video)
-    assert rms(video, 0.1, 0.45) > 0.05  # while the finished video has it
-
-
-def test_render_warning_passes_through(fake_project, fake_matte):
-    folder, project = fake_project
-    freeze_on(folder, project, 20)  # only 20 frames of clip before the freeze, so it lands early
+    freeze_on(folder, project, 20)  # only 20 frames of clip before the freeze: the head is those 20
     project["timing"].update(hold=1.0, tail=0.0)  # and a short card, to make the render quick
     project_file.save(folder, project)
 
     result = render.render(folder, matte_runner=fake_matte())
 
-    assert "will not line up" in result.warning
     assert result.freeze_out == pytest.approx(20 / 30)
     assert result.frames == media.count_frames(result.video) == 20 + 30
+    assert not hasattr(result, "warning") and not hasattr(result, "with_music")
+
+
+def test_an_older_project_with_music_and_trend_timing_renders_without_them(fake_project):
+    # A project.json from before the skill dropped the music has audio.track, audio.onsets and timing.freeze_at.
+    # It loads without them, and the render is the clip's own sound and the freeze frame, nothing else.
+    folder, project = fake_project
+    small(folder, project)
+    older = json.loads((folder / "project.json").read_text(encoding="utf-8"))
+    older["audio"].update(track="track.wav", onsets=[0.5, 1.5])
+    older["timing"]["freeze_at"] = 2.07
+    (folder / "project.json").write_text(json.dumps(older), encoding="utf-8")
+
+    result = render.render(folder, preview=True)
+
+    assert result.freeze_out == pytest.approx(15 / 30)  # the freeze lands at the freeze frame, not at 2.07 s
+    assert result.frames == media.count_frames(result.video) == 15 + 30
 
 
 # --- the plan -------------------------------------------------------------------------------
@@ -500,84 +461,22 @@ def test_render_warning_passes_through(fake_project, fake_matte):
 def test_timeline_for_follows_the_clips_rate(fake_project):
     folder, project = fake_project
     plan = render.timeline_for(project)
-    assert [(s.kind, s.frames) for s in plan.segments] == [
-        ("fill", 2), ("clip", 60), ("card", 90), ("clip", 60)]
-    assert plan.total_frames == 212
+    assert [(s.kind, s.frames) for s in plan.segments] == [("clip", 60), ("card", 90), ("clip", 60)]
+    assert plan.total_frames == 210
 
     # The same project on a 24 fps clip: the freeze frame is a time of 2.0 s, everything is counted
     # in 24ths of a second, and the tail is the 2.0 s of clip left
     project["clip"]["fps"] = 24.0
     project["freeze"]["frame"] = 48
     plan = render.timeline_for(project)
-    assert [(s.kind, s.frames) for s in plan.segments] == [
-        ("fill", 2), ("clip", 48), ("card", 72), ("clip", 48)]
-    assert plan.freeze_out == pytest.approx(50 / 24)
+    assert [(s.kind, s.frames) for s in plan.segments] == [("clip", 48), ("card", 72), ("clip", 48)]
+    assert plan.freeze_out == pytest.approx(48 / 24)
 
     # and at 23.976, which is 24000/1001 and not 24: the freeze frame is 2.002 s into the clip
     project["clip"]["fps"] = float(Fraction(24000, 1001))
     plan = render.timeline_for(project)
-    assert [segment.frames for segment in plan.segments] == [2, 48, 72, 48]
-    assert plan.freeze_out == pytest.approx(50 * 1001 / 24000)
-
-
-def test_timeline_for_snaps_to_the_tracks_hits_and_keeps_the_ranges(fake_project):
-    folder, project = fake_project
-    project["audio"] = {"track": "track.wav", "onsets": [2.30, 5.00]}
-
-    # The freeze snaps to the hit at 2.30 s and the release (2.30 + 3.0) to the one at 5.00
-    plan = render.timeline_for(project)
-    assert plan.freeze_out == pytest.approx(69 / 30)
-    assert plan.release_out == pytest.approx(150 / 30)
-    assert [(s.kind, s.frames) for s in plan.segments][:3] == [("fill", 9), ("clip", 60), ("card", 81)]
-
-    # A track that opens with silence reports a hit at its very start (23 ms, by design). It is
-    # nowhere near the freeze or the release, so it changes nothing.
-    project["audio"]["onsets"] = [0.023, 2.30, 5.00]
-    assert render.timeline_for(project).freeze_out == pytest.approx(69 / 30)
-    assert render.timeline_for(project).release_out == pytest.approx(150 / 30)
-
-    # Without a track the hits are ignored
-    project["audio"]["track"] = None
-    assert render.timeline_for(project).freeze_out == pytest.approx(62 / 30)
-
-    # A hit close to the freeze can leave less than the 1 s the hold may be, and it is put back
-    project["audio"] = {"track": "track.wav", "onsets": [2.3, 2.9]}
-    project["timing"]["hold"] = 1.0
-    plan = render.timeline_for(project)
-    assert plan.freeze_out == pytest.approx(69 / 30)
-    assert plan.release_out - plan.freeze_out == pytest.approx(1.0)
-    assert [s.frames for s in plan.segments if s.kind == "card"] == [30]
-
-    # and so the freeze, when it would be pulled under its 0.5 s
-    project["timing"].update(freeze_at=0.6, hold=3.0)
-    project["audio"]["onsets"] = [0.2]
-    assert render.timeline_for(project).freeze_out == pytest.approx(15 / 30)
-
-
-def test_render_snaps_to_the_hits_of_the_track_and_finds_them_when_none_are_listed(
-        fake_project, tmp_path, monkeypatch):
-    folder, project = fake_project
-    track = track_with_hits(tmp_path / "hits.wav", [0.62, 1.70])
-    project["audio"] = {"track": str(track), "onsets": []}  # the track was put in by hand
-    small(folder, project)
-
-    # The hits are found in the track: the freeze goes to the one at 0.62 s (it was at 0.5 s) and
-    # the release (the freeze and 1 s) to the one at 1.70 s
-    result = render.render(folder, preview=True)
-    assert result.freeze_out == pytest.approx(0.62, abs=0.03)
-    assert result.release_out == pytest.approx(1.70, abs=0.03)
-    assert result.freeze_out != pytest.approx(0.5, abs=0.05)
-
-    # A list the project has is used, and the track is not looked at again
-    def not_again(*args, **kwargs):
-        raise AssertionError("the track was analyzed although the project lists its hits")
-
-    monkeypatch.setattr(render.beats, "detect_onsets", not_again)
-    project["audio"]["onsets"] = [0.9, 2.0]
-    project_file.save(folder, project)
-    result = render.render(folder, preview=True)
-    assert result.freeze_out == pytest.approx(0.9, abs=0.03)
-    assert result.release_out == pytest.approx(2.0, abs=0.03)
+    assert [segment.frames for segment in plan.segments] == [48, 72, 48]
+    assert plan.freeze_out == pytest.approx(48 * 1001 / 24000)
 
 
 # --- the quality of the clip (ruling Q1) ----------------------------------------------------
@@ -594,10 +493,10 @@ def test_render_follows_a_24_fps_clip(tmp_path, project_maker, synthetic_clip_24
 
     result = render.render(folder, matte_runner=fake_matte())
 
-    # The rate stays 24, and the length is the plan's at 24: 2 held + 48 of clip + 24 of card + 48 of tail
+    # The rate stays 24, and the length is the plan's at 24: 48 of clip + 24 of card + 48 of tail
     assert [s["r_frame_rate"] for s in ffprobe(result.video, "r_frame_rate")] == ["24/1"]
-    assert result.frames == media.count_frames(result.video) == 122
-    assert result.freeze_out == pytest.approx(50 / 24) and result.release_out == pytest.approx(74 / 24)
+    assert result.frames == media.count_frames(result.video) == 120
+    assert result.freeze_out == pytest.approx(48 / 24) and result.release_out == pytest.approx(72 / 24)
     assert result.video.name == "synthetic24-main-character.mp4"
     assert color_tags(result.video) == {"stream": BT709, "frame": BT709}
 
@@ -606,8 +505,8 @@ def test_render_follows_a_24_fps_clip(tmp_path, project_maker, synthetic_clip_24
     # test pattern, so a repeated frame would be a step of about 0, as it is when the same clip is
     # converted to 30 fps.
     whole = (0, 0, *OUT)  # (the clip fills the whole frame)
-    assert min(motion(result.video, 2, 48, whole)) > 0.5
-    assert min(motion(result.video, 74, 28, whole)) > 0.5
+    assert min(motion(result.video, 0, 48, whole)) > 0.5
+    assert min(motion(result.video, 72, 28, whole)) > 0.5
     converted = tmp_path / "converted.mp4"
     media.run(["-i", str(synthetic_clip_24), "-vf", "fps=30", "-c:v", "libx264", "-preset",
                "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p", str(converted)])
@@ -617,7 +516,7 @@ def test_render_follows_a_24_fps_clip(tmp_path, project_maker, synthetic_clip_24
     # arrows on frame 4 (at 30 fps they would be 2 and 5), so card frame 3 has no arrows yet
     source = frozen(folder, project, tmp_path / "freeze", fake_matte)
     for card_frame, shown in ((1, "bottom"), (3, "bottom and top"), (4, "all")):
-        frame = frame_rgb(result.video, 50 + card_frame)
+        frame = frame_rgb(result.video, 48 + card_frame)
         gaps = {name: distance(frame, card_rgb(folder, project, visible, (card_frame // 6) % 3, 0.0, OUT, source))
                 for name, visible in NOTES_ON.items()}
         assert min(gaps, key=gaps.get) == shown, (card_frame, gaps)
@@ -637,7 +536,7 @@ def test_final_render_encodes_once_at_the_clips_bitrate(rendered, small_final):
     # A single pass at an average bitrate spends the budget as it goes and can leave the end of
     # the video starved (a real intro: 2.6 Mbps for the last second of a 10.7 Mbps clip), so a
     # first pass reads the whole video and the second spreads the bits where the picture needs them.
-    for calls, parts in ((rendered.calls, 4), (small_final[0].calls, 2)):
+    for calls, parts in ((rendered.calls, 3), (small_final[0].calls, 2)):
         encodes = [args for args in calls if "libx264" in args]
         lossless = [args for args in encodes if "-qp" in args]
         assert len(lossless) == parts and len(encodes) == parts + 2
@@ -678,7 +577,7 @@ def test_final_render_encodes_once_at_the_clips_bitrate(rendered, small_final):
 
 def test_render_is_the_size_of_the_clip_and_says_so_when_it_is_not(small_final):
     result = small_final[0].result  # a clip of 1920x1080: its own size, so nothing to say
-    assert result.notes == [] and result.warning is None
+    assert result.notes == []
     assert result.frames == 45  # 15 frames of clip and 30 of card
     info = media.probe(result.video)
     assert (info["width"], info["height"]) == OUT
@@ -707,6 +606,7 @@ def test_render_is_the_size_of_the_clip_and_says_so_when_it_is_not(small_final):
 def test_render_makes_a_120_fps_clip_at_60(fake_project):
     folder, project = fake_project
     small(folder, project, fps=120.0)
+    freeze_on(folder, project, 30)  # half a second in, counted in the 60 fps frames the render makes
 
     result = render.render(folder, preview=True)
 
@@ -746,65 +646,11 @@ def test_render_encodes_parts_by_kind_when_the_card_comes_first(fake_project):
 
     result = render.render(folder, preview=True)
 
-    assert "will not line up" in result.warning
     assert result.frames == media.count_frames(result.video) == 30 + 9
     # the video opens on the card, with the bottom notes on, as the card's first frame has them
     candidates = {name: card.render_card(folder, project, visible)
                   for name, visible in NOTES_ON.items()}
     assert closest(frame_rgb(result.video, 0, size=PLAN), candidates)[0] == "bottom"
-
-
-def test_render_holds_the_first_frame_when_it_is_the_whole_head(fake_project):
-    folder, project = fake_project
-    freeze_on(folder, project, 0)
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.3)  # 15 frames wanted, 0 to give
-    project_file.save(folder, project)
-    assert [(s.kind, s.frames) for s in render.timeline_for(project).segments] == [
-        ("fill", 15), ("card", 30), ("clip", 9)]
-
-    result = render.render(folder, preview=True)
-
-    assert result.warning is None
-    assert result.frames == media.count_frames(result.video) == 15 + 30 + 9
-    still = motion(result.video, 0, 16, (0, 0, *PLAN))
-    assert max(still[:14]) < 0.2  # one picture, held for 15 frames
-    assert still[14] > 3  # then the card
-    # and the held picture is the clip's first frame, as it is, not the card
-    with Image.open(folder / "frames" / "000000.jpg") as first:
-        candidates = {"fill": first.convert("RGB"),
-                      "card": card.render_card(folder, project, frozenset({"bottom"}))}
-    assert closest(frame_rgb(result.video, 0, size=PLAN), candidates)[0] == "fill"
-    assert closest(frame_rgb(result.video, 15, size=PLAN), candidates)[0] == "card"
-
-
-def test_a_final_renders_fill_frames_are_the_clips_first_frame_at_the_size_of_the_video(
-    fake_project, fake_matte, tmp_path
-):
-    folder, project = fake_project
-    shutil.copy(folder / "matte" / "000060.png", folder / "matte" / "000000.png")
-    project["freeze"]["frame"] = 0  # the card on the first frame: the head is only that frame, held
-    project["timing"].update(freeze_at=0.5, hold=1.0, tail=0.3, boil=False)  # 15 frames wanted, 0 to give
-    project_file.save(folder, project)
-    assert [(s.kind, s.frames) for s in render.timeline_for(project).segments] == [
-        ("fill", 15), ("card", 30), ("clip", 9)]
-
-    result = render.render(folder, matte_runner=fake_matte())
-
-    # the video is the clip's own size, with the held picture in it, which is then not the one cut at the
-    # plan's size and enlarged: it is the clip's first frame cut at the size of the video (Lanczos on a
-    # frame of testsrc2 is not what the clip has, a JPEG at the plan's size and enlarged to it)
-    assert result.warning is None
-    assert result.frames == media.count_frames(result.video) == 15 + 30 + 9
-    assert [(s["width"], s["height"]) for s in ffprobe(result.video, "width,height")] == [OUT]
-    assert max(motion(result.video, 0, 16, (0, 0, *OUT))[:14]) < 0.2  # one picture, held for 15 frames
-    media.extract_frames(Path(project["clip"]["path"]), tmp_path / "native", OUT, media.output_fps(project["clip"]),
-                         first=0, last=0)
-    with Image.open(tmp_path / "native" / "000000.jpg") as native,             Image.open(folder / "frames" / "000000.jpg") as at_the_plan:
-        assert native.size == OUT and at_the_plan.size == PLAN
-        candidates = {"native": native.copy(), "enlarged": at_the_plan.convert("RGB").resize(OUT, Image.Resampling.LANCZOS)}
-    found, gaps = closest(frame_rgb(result.video, 0), candidates)
-    assert found == "native" and gaps["native"] < 0.5 * gaps["enlarged"], gaps
-    assert closest(frame_rgb(result.video, 14), candidates)[0] == "native"  # the last of the held ones
 
 
 # --- the work folder, and what goes wrong -----------------------------------------------------
@@ -951,51 +797,12 @@ def test_a_render_that_fails_still_says_why_when_the_work_folder_cannot_be_clear
     assert (folder / "renders" / "_work").is_dir()  # (left over, and the next render clears it)
 
 
-def test_render_keeps_the_with_music_file_of_an_earlier_render_until_the_new_files_are_in_place(
-        fake_project, fake_matte, monkeypatch):
+def test_inputs_give_the_clip(fake_project):
     folder, project = fake_project
-    small(folder, project)
-    renders = folder / "renders"
-    renders.mkdir()
-    stale = renders / "synthetic-with-music.mp4"
-    stale.write_bytes(b"made by a render that had a track")
-    listed = ["renders/synthetic-main-character.mp4", "renders/synthetic-with-music.mp4",
-              "renders/synthetic-cover.png"]
-    project_file.update(folder, mutate=lambda p: p["status"].update(
-        outputs=listed, rendered_at="2026-10-25T10:00:00+00:00"))
-    before = project_file.load(folder)["status"]
-    real = os.replace
 
-    def player_has_it(source, destination, *args, **kwargs):
-        if Path(destination).name == "synthetic-main-character.mp4":
-            raise PermissionError(5, "Access is denied")
-        return real(source, destination, *args, **kwargs)
+    source = render._inputs(folder, project)
 
-    monkeypatch.setattr(os, "replace", player_has_it)
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
-
-    # The project has no track now, so the with-music file is out of date. The new files could not be
-    # put in place: the old ones are still what status.outputs names, and the with-music file is one of them.
-    with pytest.raises(PermissionError, match=r"synthetic-main-character\.mp4 is in use"):
-        render.render(folder, matte_runner=fake_matte())
-    assert stale.is_file()
-    assert project_file.load(folder)["status"] == before
-
-    # Once the new files are in place the old with-music file goes, and the record agrees
-    monkeypatch.undo()
-    result = render.render(folder, matte_runner=fake_matte())
-    assert result.with_music is None and not stale.exists()
-    assert project_file.load(folder)["status"]["outputs"] == [listed[0], listed[2]]
-
-
-def test_inputs_read_the_music_track_as_a_nullable_key(fake_project):
-    # A merge patch with a null deletes the key, so a project may have no audio.track at all
-    folder, project = fake_project
-    del project["audio"]["track"]
-
-    source, track = render._inputs(folder, project)
-
-    assert track is None and source.is_file()
+    assert source.is_file()
 
 
 def test_the_record_of_a_render_takes_the_projects_lock(fake_project):
@@ -1112,24 +919,6 @@ def test_render_stops_when_the_join_has_the_wrong_number_of_frames(fake_project,
     assert project_file.load(folder)["status"]["rendered_at"] is None
 
 
-def test_render_deletes_the_with_music_file_of_an_earlier_render_when_there_is_no_track(
-        fake_project, fake_matte):
-    folder, project = fake_project
-    small(folder, project)
-    renders = folder / "renders"
-    renders.mkdir()
-    stale = renders / "synthetic-with-music.mp4"
-    stale.write_bytes(b"made by a render that had a track")
-
-    render.render(folder, preview=True)  # a preview makes only itself
-    assert stale.is_file()
-
-    result = render.render(folder, matte_runner=fake_matte())  # this project has no track: the file is out of date
-    assert result.with_music is None and not stale.exists()
-    assert project_file.load(folder)["status"]["outputs"] == [
-        "renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
-
-
 def test_render_names_what_is_missing(fake_project):
     folder, project = fake_project
 
@@ -1139,12 +928,6 @@ def test_render_names_what_is_missing(fake_project):
         render.render(folder)
 
     project["clip"]["path"] = str(folder / "frames" / "000000.jpg")  # something that does exist
-    project["audio"]["track"] = "music/lost.mp3"  # in the project folder, when it is not absolute
-    project_file.save(folder, project)
-    with pytest.raises(FileNotFoundError, match=r"music track .*lost\.mp3"):
-        render.render(folder)
-
-    project["audio"]["track"] = None
     project["freeze"]["frame"] = 120  # the clip has frames 0 to 119
     project_file.save(folder, project)
     with pytest.raises(ValueError, match="freeze frame is 120.*last is 119"):
@@ -1184,9 +967,9 @@ def test_a_final_render_cuts_the_freeze_frame_again_at_the_size_of_the_video(fak
 
     result = render.render(folder, progress=lambda *step: progress.append(step), matte_runner=runner)
 
-    # RVM is run on the freeze frame (60) after the 12 before it, which are its warmup, at the size of
+    # RVM is run on the freeze frame (15) after the 12 before it, which are its warmup, at the size of
     # the video, at the ratio the model gets at that size: 576 / 1920 = 0.3, the same picture it sees at
-    # the plan. (The freeze is the 13th of the frames cut: 48 to 60.)
+    # the plan. (The freeze is the 13th of the frames cut: 3 to 15.)
     assert runner.calls == [(0.3, 12, 13)]
     assert media.probe(result.video)["width"] == 1920
     assert ("cutout", 1, 1) in progress
@@ -1219,15 +1002,15 @@ def test_a_final_render_needs_the_matte_model_when_it_cuts_the_freeze_frame_agai
 
 def test_the_head_and_the_tail_are_the_clip_at_its_own_size(rendered, tmp_path):
     result, folder, project, _ = rendered
-    # frames 2 to 61 of the video are frames 0 to 59 of the clip (2 are the first frame, held), with
-    # nothing around them and nothing drawn on them, at the size of the video
+    # frames 0 to 59 of the video are frames 0 to 59 of the clip, with nothing around them and nothing
+    # drawn on them, at the size of the video
     frames = tmp_path / "frames"
     media.extract_frames(Path(project["clip"]["path"]), frames, OUT)
-    for number, clip_frame in ((2, 0), (30, 28), (61, 59)):
+    for number, clip_frame in ((0, 0), (28, 28), (59, 59)):
         with Image.open(frames / f"{clip_frame:06d}.jpg") as jpeg:
             wanted = np.asarray(jpeg.convert("RGB"), float) / 255
         assert distance(frame_rgb(result.video, number), wanted) < 0.02, (number, clip_frame)
-    # and the tail picks the clip up after the card: frame 152 is frame 60 of the clip
+    # and the tail picks the clip up after the card: frame 150 is frame 60 of the clip
     with Image.open(frames / "000060.jpg") as jpeg:
         wanted = np.asarray(jpeg.convert("RGB"), float) / 255
-    assert distance(frame_rgb(result.video, 152), wanted) < 0.02
+    assert distance(frame_rgb(result.video, 150), wanted) < 0.02

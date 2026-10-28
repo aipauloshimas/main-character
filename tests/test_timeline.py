@@ -1,11 +1,11 @@
-"""Tests for the timeline: clip-to-output mapping, card frame states and music snapping."""
+"""Tests for the timeline: clip-to-output mapping and card frame states."""
 
 from fractions import Fraction
 
 import pytest
 
 from mclib.config import TIMING_DEFAULTS
-from mclib.timeline import build_timeline, card_states, snap_to_onsets
+from mclib.timeline import build_timeline, card_states
 
 ALL_LAYERS = frozenset({"bottom", "top", "arrows"})
 NO_LAYERS = frozenset()
@@ -33,107 +33,86 @@ def frame_by_frame(states):
 # --- build_timeline: the head ---------------------------------------------------------------
 
 
-def test_head_trims_long_clip():
-    # A 6 s clip frozen at 3.0 s: the head is the 62 frames (2.07 s) that end on the freeze, and the
-    # tail the rest of the clip, 3.0 s.
+def test_head_plays_from_the_first_frame_to_the_freeze():
+    # A 6 s clip frozen at 3.0 s: the head is the 90 frames from the clip's first frame to the freeze
+    # frame, and the tail the rest of the clip, 3.0 s. Nothing is trimmed to land on a particular second.
     tl = build_timeline(6.0, 3.0, timing_with())
 
     assert kinds(tl) == ["clip", "card", "clip"]
     head, card, tail = tl.segments
-    assert head.frames == 62
-    assert head.src_start == pytest.approx(3.0 - 62 / 30)  # 0.9333
+    assert head.frames == 90
+    assert head.src_start == 0.0
     assert head.speed == 1.0
     assert card.frames == 90
     assert tail.frames == 90
     assert tail.src_start == pytest.approx(3.0)
     assert tail.speed == 1.0
-    assert tl.total_frames == 242
-    assert tl.freeze_out == pytest.approx(62 / 30)
-    assert tl.release_out == pytest.approx(62 / 30 + 90 / 30)
-    assert tl.warning is None
-
-    # A freeze a hair short of 62 frames still fills the head, and the clip never starts before 0.
-    edge = build_timeline(6.0, 62 / 30 - 1e-9, timing_with())
-    assert kinds(edge) == ["clip", "card", "clip"]
-    assert edge.segments[0].frames == 62
-    assert edge.segments[0].src_start == 0.0
+    assert tl.total_frames == 270
+    assert tl.freeze_out == pytest.approx(3.0)
+    assert tl.release_out == pytest.approx(6.0)
 
     # Every duration follows fps, not a fixed 30.
     at60 = build_timeline(6.0, 3.0, timing_with(), fps=60)
-    assert [segment.frames for segment in at60.segments] == [124, 180, 180]
-    assert at60.total_frames == 484
-    assert at60.freeze_out == pytest.approx(124 / 60)
-    assert at60.release_out == pytest.approx(304 / 60)
+    assert [segment.frames for segment in at60.segments] == [180, 180, 180]
+    assert at60.total_frames == 540
+    assert at60.freeze_out == pytest.approx(3.0)
+    assert at60.release_out == pytest.approx(6.0)
 
 
-def test_head_speed_fits_three_second_clip():
-    # A 3 s clip frozen on its last frame has just 2.07 s of head, unless the head plays at 1.45x.
+def test_head_lasts_the_freeze_time_divided_by_the_speed():
+    # Frozen on frame 74 of a 24 fps clip (3.0833 s): at normal speed the head is those 74 frames, and
+    # at 0.75x it takes 74 / 0.75 = 98.67 output frames, which is 98 whole ones.
+    freeze = 74 / 24
+    normal = build_timeline(6.0, freeze, timing_with(), fps=24)
+    assert normal.segments[0].frames == 74
+    assert normal.segments[0].src_start == 0.0
+    assert normal.freeze_out == pytest.approx(74 / 24)
+
+    slow = build_timeline(6.0, freeze, timing_with(head_speed=0.75), fps=24)
+    assert slow.segments[0].frames == 98
+    assert slow.segments[0].src_start == 0.0
+    assert slow.segments[0].speed == 0.75
+    assert slow.freeze_out == pytest.approx(98 / 24)
+
+    # A freeze a hair short of a whole frame still counts it: a length that is a whole number of frames
+    # on paper can come out a little under it as a float.
+    edge = build_timeline(6.0, 62 / 30 - 1e-9, timing_with())
+    assert edge.segments[0].frames == 62
+
+
+def test_head_speed_only_speeds_up_the_head():
+    # A 3 s clip frozen on its last frame: at 1.45x the head is the 62 frames that take 62 * 1.45 / 30 s
+    # of the clip, from its first frame to just short of the freeze frame.
     tl = build_timeline(3.0, 3.0, timing_with(head_speed=1.45, tail=0.0))
 
     assert kinds(tl) == ["clip", "card"]
     clip = tl.segments[0]
     assert clip.frames == 62
-    assert clip.src_start == pytest.approx(0.0033, abs=1e-3)
+    assert clip.src_start == 0.0
     assert clip.speed == 1.45
-    # The 62 frames take 62 * 1.45 / 30 s of source and end on the freeze frame.
-    assert clip.src_start + clip.frames * clip.speed / 30 == pytest.approx(3.0)
-    assert tl.warning is None
+    assert tl.freeze_out == pytest.approx(62 / 30)
 
     # Only the head is sped up: the tail still plays at normal speed.
     with_tail = build_timeline(6.0, 3.0, timing_with(head_speed=1.45))
     assert [s.speed for s in with_tail.segments if s.kind == "clip"] == [1.45, 1.0]
 
 
-def test_short_head_holds_first_frame():
-    # Only 1.5 s of clip before the freeze: hold the first frame for the 17 frames that are missing.
-    tl = build_timeline(4.0, 1.5, timing_with())
-
-    assert kinds(tl) == ["fill", "clip", "card", "clip"]
-    fill, clip = tl.segments[:2]
-    assert fill.frames == 17
-    assert clip.frames == 45
-    assert clip.src_start == 0.0
-    assert clip.speed == 1.0
-    assert tl.freeze_out == pytest.approx(62 / 30)
-    assert tl.warning is None
-
-    # Exactly 1.0 s of fill (30 frames) is still allowed.
-    limit = build_timeline(4.0, 32 / 30, timing_with())
-    assert kinds(limit) == ["fill", "clip", "card", "clip"]
-    assert limit.segments[0].frames == 30
-    assert limit.segments[1].frames == 32
-    assert limit.warning is None
-
-
-def test_too_short_head_moves_freeze():
-    # 0.8 s of clip is 24 frames, 38 short of the 62 wanted: more fill than allowed, so the
-    # freeze lands early instead.
-    tl = build_timeline(4.0, 0.8, timing_with())
-
-    assert kinds(tl) == ["clip", "card", "clip"]
-    head = tl.segments[0]
-    assert head.frames == 24
-    assert head.src_start == 0.0
-    assert tl.freeze_out == pytest.approx(0.8)
-    assert tl.release_out == pytest.approx(0.8 + 3.0)
-    assert "0.80 s" in tl.warning
-
-    # One frame past the fill limit is already too short.
-    over = build_timeline(4.0, 31 / 30, timing_with())
-    assert kinds(over) == ["clip", "card", "clip"]
-    assert over.segments[0].frames == 31
-    assert "1.03 s" in over.warning
-
-    # max_fill is honored: with no fill allowed, 17 missing frames are too many.
-    no_fill = build_timeline(4.0, 1.5, timing_with(), max_fill=0.0)
-    assert kinds(no_fill) == ["clip", "card", "clip"]
-    assert "1.50 s" in no_fill.warning
-
-    # A freeze on the very first frame leaves no head at all, and no empty segment is kept.
+def test_a_freeze_on_the_first_frame_has_no_head():
+    # No head frames leaves no empty segment for the encoder to trip on, and the freeze lands at 0.
     first = build_timeline(4.0, 0.0, timing_with())
     assert kinds(first) == ["card", "clip"]
     assert first.freeze_out == 0.0
-    assert "0.00 s" in first.warning
+    assert first.release_out == pytest.approx(3.0)
+
+
+def test_there_is_no_fill_segment_or_warning():
+    # The head used to hold the clip's first frame, or warn that the freeze landed early, to hit a
+    # trend's second. A short head now simply is short.
+    short = build_timeline(4.0, 0.8, timing_with())
+    assert kinds(short) == ["clip", "card", "clip"]
+    assert short.segments[0].frames == 24
+    assert short.freeze_out == pytest.approx(0.8)
+    assert not hasattr(short, "warning")
 
 
 # --- build_timeline: the tail ---------------------------------------------------------------
@@ -148,7 +127,7 @@ def test_tail_cut_by_clip_end():
     assert tail.frames == 15
     assert tail.src_start == pytest.approx(5.5)
     assert tail.speed == 1.0
-    assert tl.total_frames == 62 + 90 + 15
+    assert tl.total_frames == 165 + 90 + 15
 
     # Float noise must not cost a frame: 3.3 - 3.0 is 0.2999999999999998 s, which is 9 frames.
     noisy = build_timeline(3.3, 3.0, timing_with())
@@ -168,7 +147,7 @@ def test_release_from_skips_ahead():
     assert tail.src_start == pytest.approx(3.5)
     assert tail.frames == 75
     assert tail.speed == 1.0
-    assert tl.total_frames == 227  # the head and the card do not change
+    assert tl.total_frames == 255  # the head and the card do not change
 
 
 # --- card_states ----------------------------------------------------------------------------
@@ -183,48 +162,45 @@ def test_release_from_skips_ahead():
 
 SLIDER_CASES = [
     pytest.param(
-        # head_speed 0.75 (the slowest), the freeze at 1.0 s and a hold of 4 s. The head wants 30 frames
-        # (1.0 x 30) and the clip has 3.0 x 30 / 0.75 = 120, so it takes the 30 that end on the freeze:
-        # 30 x 0.75 / 30 = 0.75 s of clip, from 3.0 - 0.75 = 2.25. The card is 4 x 30 = 120 frames and
-        # the tail the rest of the clip, 3.0 s = 90 frames from the freeze. 240 in all.
-        6.0, 3.0, dict(head_speed=0.75, freeze_at=1.0, hold=4.0), 30,
-        [("clip", 30, 2.25, 0.75), ("card", 120, 0.0, 1.0), ("clip", 90, 3.0, 1.0)], 1.0, 5.0, None,
+        # head_speed 0.75 (the slowest) and a hold of 4 s. The clip is frozen at 3.0 s, so the head is
+        # 3.0 x 30 / 0.75 = 120 frames, from the clip's start. The card is 4 x 30 = 120 frames and the
+        # tail the rest of the clip, 3.0 s = 90 frames from the freeze. 330 in all.
+        6.0, 3.0, dict(head_speed=0.75, hold=4.0), 30,
+        [("clip", 120, 0.0, 0.75), ("card", 120, 0.0, 1.0), ("clip", 90, 3.0, 1.0)], 4.0, 8.0,
         id="slow head, long hold",
     ),
     pytest.param(
-        # head_speed 1.5 (the fastest) and the freeze at 5.0 s (the latest): 150 frames wanted, and the
-        # 6.0 s of clip before the freeze give 6.0 x 30 / 1.5 = 120. The 30 that are missing are exactly
-        # the 1.0 s the first frame may be held, so the head is 30 held frames and then all 120. The
-        # card is the default 90 and the tail the 2.0 s of clip left, 60 frames. 300 in all.
-        8.0, 6.0, dict(head_speed=1.5, freeze_at=5.0), 30,
-        [("fill", 30, 0.0, 1.0), ("clip", 120, 0.0, 1.5), ("card", 90, 0.0, 1.0), ("clip", 60, 6.0, 1.0)],
-        5.0, 8.0, None,
-        id="fast head that needs the first frame held",
+        # head_speed 1.5 (the fastest): the 6.0 s of clip before the freeze take 6.0 x 30 / 1.5 = 120
+        # frames. The card is the default 90 and the tail the 2.0 s of clip left, 60 frames. 270 in all.
+        8.0, 6.0, dict(head_speed=1.5), 30,
+        [("clip", 120, 0.0, 1.5), ("card", 90, 0.0, 1.0), ("clip", 60, 6.0, 1.0)],
+        4.0, 7.0,
+        id="fast head",
     ),
     pytest.param(
-        # release_from 1.0 (the most) and a tail of 3.0 (the most): the head is the default 62 frames
-        # (the clip has 2.5 x 30 = 75), from 2.5 - 62 / 30 = 0.4333. The card is the shortest hold, 30
-        # frames. The tail starts 1.0 s past the freeze, at 3.5 s, and asks for 3.0 s of a clip that has
-        # 6.0 - 3.5 = 2.5 s left: 75 frames, cut by the end of the clip. 62 + 30 + 75 = 167.
+        # release_from 1.0 (the most) and a tail of 3.0 (the most): the head is the 2.5 x 30 = 75 frames
+        # before the freeze. The card is the shortest hold, 30 frames. The tail starts 1.0 s past the
+        # freeze, at 3.5 s, and asks for 3.0 s of a clip that has 6.0 - 3.5 = 2.5 s left: 75 frames, cut
+        # by the end of the clip. 75 + 30 + 75 = 180.
         6.0, 2.5, dict(release_from=1.0, tail=3.0, hold=1.0), 30,
-        [("clip", 62, 2.5 - 62 / 30, 1.0), ("card", 30, 0.0, 1.0), ("clip", 75, 3.5, 1.0)],
-        62 / 30, 62 / 30 + 1.0, None,
+        [("clip", 75, 0.0, 1.0), ("card", 30, 0.0, 1.0), ("clip", 75, 3.5, 1.0)],
+        2.5, 3.5,
         id="release skipped ahead, tail cut by the clip's end",
     ),
     pytest.param(
-        # at 24 fps, with no tail at all (0.0), the longest hold (6.0 s) and the earliest freeze (0.5 s):
-        # 12 head frames from 1.0 - 12 / 24 = 0.5, a card of 6 x 24 = 144 frames, and a tail of no
-        # frames, which is not a segment. 156 in all, and the card ends 6.5 s in.
-        3.0, 1.0, dict(tail=0.0, hold=6.0, freeze_at=0.5), 24,
-        [("clip", 12, 0.5, 1.0), ("card", 144, 0.0, 1.0)], 0.5, 6.5, None,
-        id="no tail, longest hold, earliest freeze, 24 fps",
+        # at 24 fps, with no tail at all (0.0) and the longest hold (6.0 s): the freeze at 1.0 s gives 24
+        # head frames, a card of 6 x 24 = 144 frames, and a tail of no frames, which is not a segment.
+        # 168 in all, and the card ends 7.0 s in.
+        3.0, 1.0, dict(tail=0.0, hold=6.0), 24,
+        [("clip", 24, 0.0, 1.0), ("card", 144, 0.0, 1.0)], 1.0, 7.0,
+        id="no tail, longest hold, 24 fps",
     ),
 ]
 
 
-@pytest.mark.parametrize("duration, freeze, changes, fps, segments, freeze_out, release_out, warning", SLIDER_CASES)
+@pytest.mark.parametrize("duration, freeze, changes, fps, segments, freeze_out, release_out", SLIDER_CASES)
 def test_build_timeline_at_timings_the_sliders_can_set(
-    duration, freeze, changes, fps, segments, freeze_out, release_out, warning
+    duration, freeze, changes, fps, segments, freeze_out, release_out
 ):
     tl = build_timeline(duration, freeze, timing_with(**changes), fps=fps)
 
@@ -235,7 +211,6 @@ def test_build_timeline_at_timings_the_sliders_can_set(
     assert tl.total_frames == sum(frames for _, frames, _, _ in segments)
     assert tl.freeze_out == pytest.approx(freeze_out)
     assert tl.release_out == pytest.approx(release_out)
-    assert tl.warning == warning
 
 
 def test_card_states_staggered():
@@ -306,45 +281,19 @@ def test_card_states_shutter_flash():
         assert (flashed.visible, flashed.variant) == (unflashed.visible, unflashed.variant)
 
 
-# --- snap_to_onsets -------------------------------------------------------------------------
-
-
-def test_snap_to_onsets():
-    # The freeze snaps to 2.05 and the release (2.05 + 3.0 = 5.05) to 5.06.
-    assert snap_to_onsets(2.07, 3.0, [0.63, 2.05, 3.16, 5.06]) == pytest.approx((2.05, 3.01))
-
-    # Of the onsets in reach, the nearest wins: not the first, not the last.
-    assert snap_to_onsets(2.07, 3.0, [1.80, 2.10, 2.30, 5.0, 5.3]) == pytest.approx((2.10, 2.90))
-
-    # The release looks around the snapped freeze, not the original one: 1.60 + 3.0 = 4.60 has
-    # no onset in reach, even though 5.55 is within 0.5 s of 2.07 + 3.0.
-    assert snap_to_onsets(2.07, 3.0, [1.60, 5.55]) == pytest.approx((1.60, 3.0))
-
-    # An onset exactly at the edge of the window counts, and the window can be changed.
-    assert snap_to_onsets(2.0, 3.0, [2.5]) == (2.5, 3.0)
-    assert snap_to_onsets(2.0, 3.0, [2.5], window=0.25) == (2.0, 3.0)
-
-
-def test_snap_without_near_onset_keeps_values():
-    assert snap_to_onsets(2.07, 3.0, [0.5]) == pytest.approx((2.07, 3.0))
-    # With nothing to snap to, the values come back exactly, with no float noise in the hold.
-    assert snap_to_onsets(2.07, 3.0, []) == (2.07, 3.0)
-
-
 # --- other frame rates ----------------------------------------------------------------------
 
 
 def test_timeline_is_counted_in_frames_of_the_clips_rate():
-    # A 4 s clip at 24 fps frozen on frame 48 (2.0 s): 50 head frames are wanted (2.07 s) and the
-    # clip has 48, so its first frame is held for 2. The card is 3 s, the tail the 2 s of clip left.
+    # A 4 s clip at 24 fps frozen on frame 48 (2.0 s): the head is those 48 frames. The card is 3 s, the
+    # tail the 2 s of clip left.
     tl = build_timeline(4.0, 48 / 24, timing_with(), fps=24)
 
-    assert kinds(tl) == ["fill", "clip", "card", "clip"]
-    assert [segment.frames for segment in tl.segments] == [2, 48, 72, 48]
-    assert tl.total_frames == 170
-    assert tl.freeze_out == pytest.approx(50 / 24)
-    assert tl.release_out == pytest.approx(122 / 24)
-    assert tl.warning is None
+    assert kinds(tl) == ["clip", "card", "clip"]
+    assert [segment.frames for segment in tl.segments] == [48, 72, 48]
+    assert tl.total_frames == 168
+    assert tl.freeze_out == pytest.approx(48 / 24)
+    assert tl.release_out == pytest.approx(120 / 24)
     assert tl.segments[-1].src_start == pytest.approx(2.0)
 
     # An exact rate (a Fraction, as media.output_fps gives it) is the same as its float, and the
@@ -353,7 +302,7 @@ def test_timeline_is_counted_in_frames_of_the_clips_rate():
     same = build_timeline(4.0, 48 * 1001 / 24000, timing_with(), fps=24000 / 1001)
     assert ntsc == same
     assert isinstance(ntsc.freeze_out, float) and isinstance(ntsc.release_out, float)
-    assert [segment.frames for segment in ntsc.segments] == [2, 48, 72, 48]  # the clip's last frame, at 3.96 s, too
+    assert [segment.frames for segment in ntsc.segments] == [48, 72, 48]  # the clip's last frame, at 3.96 s, too
 
 
 def test_card_states_keep_their_times_at_other_rates():

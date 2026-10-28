@@ -43,6 +43,7 @@ _REVEAL_MODES = ("staggered", "all")
 _MATTE_DETAILS = ("auto", "high", "max")
 _MATTE_EDGE = (-4, 4)
 _STAT_RANGE = (0, 10)
+_REMOVED_AUDIO_KEYS = ("track", "onsets")  # the music: an older file has them, and load drops them
 # "picked", "style_request" and "notice" are not listed: a merge patch (RFC 7386) deletes a key when it
 # sets it to null, so "nothing picked" can reach the file as a missing key.
 _REQUIRED_KEYS = (
@@ -86,7 +87,7 @@ def default_project(clip: dict, layout: str, work: tuple[int, int], style: dict)
         "work": {"width": int(work[0]), "height": int(work[1])},
         "freeze": {"frame": 0, "suggested": []},
         "timing": dict(config.TIMING_DEFAULTS),
-        "audio": {"track": None, "onsets": [], "original": True},
+        "audio": {"original": True},
         "style": deepcopy(style),
         "style_source": str(style.get("id", "")),
         "matte": {"detail": "auto", "edge": 0},
@@ -117,6 +118,9 @@ def _migrated(project):
       of each version is dropped.
     - The clip keeps its own sound unless the file says otherwise: a file from before the setting has
       audio.original on.
+    - There is no music and no trend timing: the skill only makes the freeze-frame effect, and the
+      person adds the sound in their own app. timing.freeze_at, audio.track and audio.onsets are
+      dropped from a file that has them.
     - The edge of the cutout is a whole number: the studio's slider used to move in halves, so a 1.5 is
       read as 2 (validate would refuse it, and the project could not be changed at all).
     - The style has every little extra: a project from before the eleven new ones has its style with
@@ -135,6 +139,11 @@ def _migrated(project):
     audio = project.get("audio")
     if isinstance(audio, dict):
         audio.setdefault("original", True)
+        for key in _REMOVED_AUDIO_KEYS:
+            audio.pop(key, None)
+    timing = project.get("timing")
+    if isinstance(timing, dict):
+        timing.pop("freeze_at", None)
     matte = project.get("matte")
     if isinstance(matte, dict) and isinstance(matte.get("edge"), float) and math.isfinite(matte["edge"]):
         matte["edge"] = round(matte["edge"])
@@ -198,8 +207,7 @@ def update(
             mutate(merged)
         audio = merged.get("audio")
         if isinstance(audio, dict):
-            audio.setdefault("track", None)  # a null in a patch deleted it, and the file keeps it as a null
-            audio.setdefault("original", True)  # and a null here puts the default back: the clip keeps its sound
+            audio.setdefault("original", True)  # a null here puts the default back: the clip keeps its sound
         warnings = validate(merged)
         _check_freeze_in_clip(current, merged)
         if merged != current:
@@ -331,8 +339,8 @@ def _check_freeze(freeze: dict) -> None:
 
 def _check_audio(audio: dict) -> None:
     _require(isinstance(audio, dict), "audio must be an object")
-    _require(audio.get("track") is None or isinstance(audio["track"], str), "audio.track must be text or null")
-    _require(isinstance(audio.get("onsets"), list), "audio.onsets must be a list")
+    for key in audio:  # (a key nothing reads is a patch that changes nothing: Claude is told, as with positions)
+        _require(key == "original", f"audio.{key} can't be set: only audio.original is a setting.")
     _require(isinstance(audio.get("original", True), bool), "audio.original must be true or false")
 
 
@@ -361,6 +369,8 @@ def _check_positions(positions: dict) -> None:
 
 def _check_timing(timing: dict) -> None:
     _require(isinstance(timing, dict), "timing must be an object")
+    for key in timing:  # (a key nothing reads, such as the old freeze_at, is a patch that changes nothing)
+        _require(key in config.TIMING_DEFAULTS, f"timing.{key} can't be set: the settings are {', '.join(config.TIMING_DEFAULTS)}.")
     for key in config.TIMING_DEFAULTS:
         _require(key in timing, f"timing.{key} is missing")
     for key, (low, high) in config.TIMING_RANGES.items():

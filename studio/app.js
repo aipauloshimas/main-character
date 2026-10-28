@@ -18,8 +18,6 @@ const FLAG_TEXT = "This note doesn't fit here. Shorten it or drag it somewhere e
 const HANDLE_NAMES = { tl: 'Top left note', tr: 'Top right note', bl: 'Bottom left note', br: 'Bottom right note', burst: 'Name burst' };
 const ROLE_NAMES = { dark: 'Background dark', light: 'Background light', tex: 'Texture', edge: 'Edge', ink: 'Text' };
 const TIMING_ROWS = [
-  { key: 'freeze_at', label: 'Freeze at', unit: ' s', step: 0.01, digits: 2,
-    hint: 'Where the freeze lands in the video. 2.07 s lines up with the trending sound.' },
   { key: 'hold', label: 'Hold', unit: ' s', step: 0.1, digits: 1, hint: 'How long the card stays on screen.' },
   { key: 'head_speed', label: 'Head speed', unit: 'x', step: 0.05, digits: 2,
     hint: 'How fast the clip plays before the freeze. 1x is normal speed.' },
@@ -171,7 +169,7 @@ const state = {
   mode: 'still',
   rendering: false,
   previewReady: false, // a preview was made in this visit
-  last: null, // {warning, notes} of the last render in this visit
+  last: null, // {notes} of the last render in this visit
   told: new Set(), // the warnings the person has been told about
 };
 
@@ -957,7 +955,7 @@ function wireStyle() {
   });
 }
 
-/* ---------- Timing and music ---------- */
+/* ---------- Timing ---------- */
 
 function buildTiming() {
   const ranges = state.options.timing.ranges;
@@ -1013,46 +1011,17 @@ function paintTiming() {
     $('#' + id).setAttribute('aria-pressed', String(on));
     $('#' + id).textContent = on ? 'On' : 'Off';
   }
-  paintMusic();
+  paintFreezeLands();
 }
 
-function paintMusic(message) {
-  const { audio } = state.project;
-  const info = $('#music-info');
-  if (message) {
-    info.textContent = message;
-  } else if (audio.track) {
-    const hits = (audio.onsets || []).length;
-    info.textContent = `${audio.track.split('/').pop()} · ${hits} ${hits === 1 ? 'beat' : 'beats'} found`;
-  } else {
-    info.textContent = 'No music track.';
-  }
-  $('#music-remove').hidden = !audio.track;
-}
-
-async function addMusic(file) {
-  paintMusic('Listening for the beats…');
-  try {
-    await flush();
-    const answer = await api('POST', '/api/audio', file, { 'X-Filename': encodeURIComponent(file.name) });
-    clearError();
-    state.project = answer.project;
-    showWarnings(answer.warnings);
-    paintTiming();
-    toast(`${answer.onsets.length} ${answer.onsets.length === 1 ? 'beat' : 'beats'} found in ${file.name}`);
-  } catch (error) {
-    showError(error.message);
-    paintMusic();
-  }
-}
-
-function wireMusic() {
-  $('#music-file').addEventListener('change', (event) => {
-    const file = event.target.files[0];
-    event.target.value = '';
-    if (file) addMusic(file);
-  });
-  $('#music-remove').addEventListener('click', () => edit({ audio: { track: null, onsets: [] } }, { now: true }));
+/** Where in the video the freeze lands: the clip plays from its first frame up to the freeze frame at head speed, as the
+    timeline does (freeze frame / fps / head speed). The person lines their own sound up with it in their app. */
+function paintFreezeLands() {
+  const { clip, freeze, timing } = state.project;
+  const speed = Number(timing.head_speed) || 1;
+  $('#freeze-lands').textContent = clip.fps
+    ? `Freeze lands at ${(freeze.frame / clip.fps / speed).toFixed(2)} s`
+    : 'Freeze lands at ? s';
 }
 
 /* ---------- previews and renders ---------- */
@@ -1079,7 +1048,7 @@ async function makePreview() {
     video.src = `${answer.url}?t=${Date.now()}`;
     setMode('play');
     video.play().catch(() => { /* the person presses play */ });
-    for (const line of [answer.warning, ...(answer.notes || [])]) if (line) toast(line);
+    for (const line of answer.notes || []) if (line) toast(line);
   } catch (error) {
     showError(error.message);
   } finally {
@@ -1096,12 +1065,11 @@ async function makeRender() {
     state.resultSource = null;
     const answer = await api('POST', '/api/render');
     clearError();
-    state.last = { warning: answer.warning, notes: answer.notes || [] };
+    state.last = { notes: answer.notes || [] };
     await reload();
     paintResults();
     selectTab('results');
     toast('Rendered. Your video is in the Results tab.');
-    if (answer.warning) toast(answer.warning);
   } catch (error) {
     showError(error.message);
   } finally {
@@ -1110,7 +1078,7 @@ async function makeRender() {
   }
 }
 
-const KINDS = [[/-with-music\.mp4$/, 'Video with your music'], [/\.mp4$/, 'Video'], [/-cover\.png$/, 'Cover image']];
+const KINDS = [[/\.mp4$/, 'Video'], [/-cover\.png$/, 'Cover image']];
 
 function paintResults() {
   const { status } = state.project;
@@ -1118,7 +1086,7 @@ function paintResults() {
   $('#results-empty').hidden = outputs.length > 0;
   $('#results-body').hidden = outputs.length === 0;
   if (!outputs.length) return;
-  const main = outputs.find((path) => /\.mp4$/.test(path) && !/-with-music\.mp4$/.test(path)) || outputs.find((path) => /\.mp4$/.test(path));
+  const main = outputs.find((path) => /\.mp4$/.test(path));
   const stamp = encodeURIComponent((status && status.rendered_at) || '');
   const source = main ? `${assetUrl(main)}?t=${stamp}` : null;
   const video = $('#result-video');
@@ -1128,7 +1096,7 @@ function paintResults() {
   }
   video.hidden = !source;
   $('#results-when').textContent = status.rendered_at ? `Rendered ${new Date(status.rendered_at).toLocaleString()}.` : '';
-  const lines = state.last ? [state.last.warning, ...state.last.notes].filter(Boolean) : [];
+  const lines = state.last ? state.last.notes.filter(Boolean) : [];
   const warning = $('#results-warning');
   warning.textContent = lines.join(' ');
   warning.hidden = lines.length === 0;
@@ -1189,7 +1157,6 @@ function wireStatic() {
   wireTabs();
   wireLines();
   wireStyle();
-  wireMusic();
   $('#btn-preview').addEventListener('click', makePreview);
   $('#btn-render').addEventListener('click', makeRender);
   $('#btn-reset').addEventListener('click', () => {

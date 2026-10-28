@@ -235,7 +235,7 @@ def test_cli_init_says_when_a_clip_of_another_shape_resets_the_note_positions(tm
     assert project_file.load(folder)["positions"] == project_file.empty_positions()
 
 
-def test_cli_render_prints_the_files_and_every_warning(tmp_path, monkeypatch, capsys, fake_project):
+def test_cli_render_prints_the_files_and_every_note(tmp_path, monkeypatch, capsys, fake_project):
     folder, _ = fake_project
     seen = []
     warnings = ["Rendered at 3840x2026; your clip is 4096x2160, bigger than 4K.",
@@ -245,20 +245,17 @@ def test_cli_render_prints_the_files_and_every_warning(tmp_path, monkeypatch, ca
         seen.append((project_dir, preview))
         renders = Path(project_dir) / "renders"
         if preview:
-            return RenderResult(renders / "preview.mp4", None, None, 188, 2.0667, 5.0667, None)
+            return RenderResult(renders / "preview.mp4", None, 188, 2.0667, 5.0667)
         return RenderResult(
-            renders / "a-main-character.mp4", renders / "a-with-music.mp4", renders / "a-cover.png",
-            188, 2.0667, 5.0667, "The freeze lands at 0.67 s, so the trend's sound will not line up.",
-            warnings)
+            renders / "a-main-character.mp4", renders / "a-cover.png", 188, 2.0667, 5.0667, warnings)
 
     monkeypatch.setattr(render, "render", fake_render)
     renders = folder.resolve() / "renders"
 
     assert mc.main(["render", str(folder)]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        f"VIDEO {renders / 'a-main-character.mp4'}", f"WITH_MUSIC {renders / 'a-with-music.mp4'}",
+        f"VIDEO {renders / 'a-main-character.mp4'}",
         f"COVER {renders / 'a-cover.png'}", "FRAMES 188 FREEZE 2.07 RELEASE 5.07",
-        "WARNING The freeze lands at 0.67 s, so the trend's sound will not line up.",
         f"WARNING {warnings[0]}", f"WARNING {warnings[1]}"]
 
     assert mc.main(["render", str(folder), "--preview"]) == 0
@@ -447,7 +444,7 @@ def test_cli_init_then_render_a_24_fps_clip(synthetic_clip_24, tmp_path, monkeyp
     info = media.probe(video)
     # the video is the clip's own frame: 1920x1080 stays 1920x1080
     assert (info["width"], info["height"], info["fps"], info["frames"]) == (1920, 1080, 24.0, plan.total_frames)
-    assert plan.total_frames == 2 + 48 + 24 + 48  # the tail is the 2 s of clip left
+    assert plan.total_frames == 48 + 24 + 48  # the head is the 2 s before the freeze, and the tail the 2 s of clip left
     assert lines[2] == f"FRAMES {plan.total_frames} FREEZE {plan.freeze_out:.2f} RELEASE {plan.release_out:.2f}"
     assert project_file.load(folder)["status"]["outputs"] == [
         f"renders/{name}-main-character.mp4", f"renders/{name}-cover.png"]

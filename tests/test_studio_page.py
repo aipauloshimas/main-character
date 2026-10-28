@@ -118,9 +118,10 @@ def test_the_page_calls_only_routes_that_exist():
         assert path in routes or path in prefixes, path
     # and it uses the main ones. (There is no /api/layout-mode: the clip has the format it has.)
     assert {"/api/project", "/api/card.png", "/api/layout", "/api/styles", "/api/palette", "/api/style/ask",
-            "/api/style/reference", "/api/matte/refine", "/api/audio",
+            "/api/style/reference", "/api/matte/refine",
             "/api/preview", "/api/render", "/api/frame", "/api/frames", "/api/options"} <= called
     assert "/api/layout-mode" not in called
+    assert "/api/audio" not in called and "/api/audio" not in routes  # there is no music to upload
 
 
 def test_the_script_finds_the_elements_it_asks_for():
@@ -128,7 +129,7 @@ def test_the_script_finds_the_elements_it_asks_for():
     ids = set(re.findall(r'\bid="([^"]+)"', html))
     asked = set(re.findall(r"\$\('#([A-Za-z0-9_-]+)'\)", script)) | set(re.findall(r"\$\('\[data-count=\"([^\"]+)\"\]'\)", script))
     asked |= set(re.findall(r"'(f-[a-z0-9-]+|t-[a-z_]+|sw-[a-z]+)'", script)) - {"t-", "sw-"}
-    dynamic = {"t-freeze_at", "t-hold", "t-head_speed", "t-tail", "t-release_from"}  # made from the timing table
+    dynamic = {"t-hold", "t-head_speed", "t-tail", "t-release_from"}  # made from the timing table
     missing = {name for name in asked if name not in ids and name not in dynamic}
     assert not missing, missing
 
@@ -142,8 +143,8 @@ def test_the_copy_of_the_plan_is_on_the_page():
         "Background dark", "Background light", "Texture", "Edge", "Text",
         "Take the colors from an image", "Describe it to Claude", "Ask Claude", "Claude is on it",
         "Claude updated your style", "Save as my style", "Name your style",
-        "Freeze at", "Hold", "Head speed", "Tail", "Release from", "Staggered", "All at once", "Boil",
-        "Shutter click", "Original sound", "Music", "Shooting guide",
+        "Hold", "Head speed", "Tail", "Release from", "Staggered", "All at once", "Boil",
+        "Shutter click", "Original sound", "Freeze lands at", "Shooting guide",
         "This note doesn't fit here. Shorten it or drag it somewhere else.",
         "easy to read on a phone", "hard to read on a phone. Try a darker or lighter text color.",
         "Little extras", "One hero element", "Cutout edge", "Notes", "Arrows", "Background",
@@ -181,12 +182,53 @@ def test_the_original_sound_has_a_switch_and_the_preview_is_not_muted():
     timing = html[html.index('id="tab-timing"'):html.index('id="tab-shoot"')]
     assert re.search(r'<button type="button" class="tog" id="tog-sound" aria-pressed="true" aria-label="Original sound">On</button>', timing)
     assert "The clip's own sound. Off mutes it." in timing
-    assert timing.index('id="tog-shutter"') < timing.index('id="tog-sound"') < timing.index("<h2>Music</h2>")
+    assert timing.index('id="tog-shutter"') < timing.index('id="tog-sound"')
     assert "edit({ audio: { original: !(state.project.audio.original !== false) } }, { now: true })" in script
     assert "['tog-sound', state.project.audio.original !== false]" in script
     # the preview plays with its sound
     video = re.search(r'<video id="preview-video"[^>]*>', html).group(0)
     assert "muted" not in video
+
+
+def test_the_page_has_no_music_controls_and_no_trend_timing():
+    html, script, css = read("index.html"), read("app.js"), read("style.css")
+
+    # The skill only makes the freeze-frame effect: the person adds the music in their own app
+    assert "music" not in (html + script + css).lower()
+    assert not re.findall(r'id="music-[^"]*"', html) and "type=\"file\" accept=\"audio" not in html
+    assert "audio.track" not in script and "onsets" not in script and "with-music" not in script
+    assert "freeze_at" not in script and "trending sound" not in html + script
+    assert "t-freeze_at" not in html
+
+
+def test_the_timing_tab_says_where_the_freeze_lands():
+    html, script = read("index.html"), read("app.js")
+
+    # A read-only line in the Timing tab, above the sliders
+    timing = html[html.index('id="tab-timing"'):html.index('id="tab-shoot"')]
+    assert re.search(r'<p id="freeze-lands" class="freeze-lands" role="status"></p>', timing)
+    assert timing.index('id="freeze-lands"') < timing.index('id="timing-sliders"')
+    # It is painted whenever the timing is, which is whenever the head speed or the freeze frame changes
+    assert re.search(r"function paintTiming\(\) \{.*?paintFreezeLands\(\);\s*\}", script, re.S)
+
+    # and it is computed as the timeline does: freeze frame / fps / head speed, at 2 decimals
+    start = script.index("function paintFreezeLands() {")
+    end = script.index("\n}\n", start)
+    function = script[start:end + 2]
+    code = """
+    const line = { textContent: '' };
+    const $ = () => line;
+    const run = new Function('state', '$', FUNCTION + '; paintFreezeLands(); return null;');
+    const out = [];
+    for (const [frame, fps, speed] of data) {
+      const state = { project: { clip: { fps }, freeze: { frame }, timing: { head_speed: speed } } };
+      run(state, $);
+      out.push(line.textContent);
+    }
+    console.log(JSON.stringify(out));
+    """.replace("FUNCTION", json.dumps(function))
+    shown = run_node(code, [[74, 24, 1.0], [74, 24, 0.75], [90, 30, 1.0], [0, 30, 1.5]])
+    assert shown == ["Freeze lands at 3.08 s", "Freeze lands at 4.11 s", "Freeze lands at 3.00 s", "Freeze lands at 0.00 s"]
 
 
 def test_the_shooting_guide_is_two_steps():
@@ -267,18 +309,18 @@ def test_every_request_the_page_posts_says_it_is_json():
       await api('POST', '/api/project', { copy: { name: 'Robin' } });
       await api('GET', '/api/project');
       await api('POST', '/api/palette', new Blob(['x']), { 'Content-Type': 'image/png' });
-      await api('POST', '/api/audio', new Blob(['x']), { 'X-Filename': 'a.wav' });
+      await api('POST', '/api/style/reference', new Blob(['x']), { 'X-Filename': 'a.png' });
       console.log(JSON.stringify(calls));
     })();
     """
 
-    preview, patch, read_only, palette, audio = run_node(script, None)
+    preview, patch, read_only, palette, reference = run_node(script, None)
 
     assert preview["headers"] == {"Content-Type": "application/json"} and preview["body"] == "{}"
     assert patch["headers"] == {"Content-Type": "application/json"} and patch["body"] == '{"copy":{"name":"Robin"}}'
     assert read_only["body"] is None and "Content-Type" not in read_only["headers"]
     assert palette["headers"] == {"Content-Type": "image/png"} and palette["body"] == "a blob"  # its own type
-    assert audio["headers"] == {"X-Filename": "a.wav"} and audio["body"] == "a blob"
+    assert reference["headers"] == {"X-Filename": "a.png"} and reference["body"] == "a blob"
     # and the one call that does not go through api(), the last edit sent when the page is closed
     for line in read("app.js").splitlines():
         if "fetch(" in line and "method: 'POST'" in line:

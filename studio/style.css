@@ -235,9 +235,7 @@ textarea { min-height: 64px; resize: vertical; background: var(--field); line-he
 .trow input[type="range"] { width: 100%; accent-color: var(--accent); }
 .trow .value { font-size: 14px; }
 .trow .hint { grid-column: 2 / -1; margin-top: -4px; }
-.music { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.music .upload { margin-top: 0; }
-.music-info { color: #d9d4e2; font-size: 14px; }
+.freeze-lands { color: #d9d4e2; font-size: 14px; margin: 0 0 14px; }
 
 /* ---- Shooting guide ---- */
 .guide { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 10px; }

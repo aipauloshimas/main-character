@@ -39,8 +39,8 @@ must take another name.
 ## Sound
 
 - The shutter click is synthesized by the skill's own code (`scripts/mclib/sfx.py`). There is no sound file.
-- No music is bundled, trending or otherwise. People add the trend's sound in the app, or upload their own
-  track in the studio, and its rights are theirs to check.
+- No music is bundled, trending or otherwise, and the skill never takes any. People add the sound in their own
+  app, and its rights are theirs to check.
 
 ## Installed separately, not bundled
 
