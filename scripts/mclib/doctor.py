@@ -25,7 +25,7 @@ PYTHON_MIN = (3, 10)
 PILLOW_MIN = (9, 1)  # Image.Resampling and ImageFont.Layout, which the drawing code uses
 PIP_FIX = "python -m pip install numpy pillow onnxruntime"
 PILLOW_FIX = "python -m pip install --upgrade pillow"
-MODEL_FIX = "python mc.py doctor --download-model"
+MODEL_FIX = f'{"python3" if platform.system() == "Darwin" else "python"} "{SKILL_DIR / "scripts" / "mc.py"}" doctor --download-model'
 _PACKAGES = {"numpy": "numpy", "PIL": "Pillow", "onnxruntime": "onnxruntime"}  # import -> name
 _FFMPEG_FIX = (
     "Install ffmpeg (Windows: winget install Gyan.FFmpeg; macOS: brew install ffmpeg), then "

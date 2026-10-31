@@ -38,7 +38,7 @@ EXTRAS = (
 LAYERS = ("bg", "edge", "notes", "arrows", "hero")  # the layers that take exactly one option
 _RECIPE_KEYS = ("id", "name", *LAYERS, "extras", "palette")
 
-# The ids of every layer, and the labels the page shows for them (spec 8a). The extras are listed
+# The ids of every layer, and the labels the page shows for them. The extras are listed
 # as a layer here too, so that the page can build all six rows from these two tables.
 OPTIONS: dict[str, tuple[str, ...]] = {
     "bg": ("dots", "comic", "riso", "night", "flat", "mono"),

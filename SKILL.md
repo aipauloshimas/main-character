@@ -1,11 +1,11 @@
 ---
 name: main-character
-description: 'Use when someone wants the "this is your sign to make an introduction video" freeze-frame intro made from their own clip: the video freezes on them, the room turns into a styled card, and hand-drawn notes with arrows describe them. Triggers on /main-character, "freeze-frame intro", "this is your sign to make an introduction video", "main character intro", "character intro edit", or a dropped clip of the person together with a request for that edit. PT examples for reliability: "edita minha intro estilo main character", "faz aquela intro que congela". Editing only: it interviews the person, writes the notes, opens a local studio and renders the clip in its own format (16:9 stays 16:9, 9:16 stays 9:16). NOT for other video edits (captions, cuts, color grades, multicam, b-roll), for making footage, or for posting.'
+description: 'Use when someone wants the "this is your sign to make an introduction video" freeze-frame intro made from their own clip: the video freezes on them, the room turns into a styled card, and hand-drawn notes with arrows describe them. Triggers on /main-character, "freeze-frame intro", "this is your sign to make an introduction video", "main character intro", "character intro edit", or a dropped clip of the person together with a request for that edit. Also triggers on Portuguese requests such as "edita minha intro estilo main character", "faz aquela intro que congela". Editing only: it interviews the person, writes the notes, opens a local studio and renders the clip in its own format (16:9 stays 16:9, 9:16 stays 9:16). NOT for other video edits (captions, cuts, color grades, multicam, b-roll), for making footage, or for posting.'
 ---
 
 # /main-character: the freeze-frame intro
 
-The person brings one clip of themselves walking up to the camera. You check the setup, interview them, write
+The person brings one short clip of themselves looking into the camera. You check the setup, interview them, write
 the notes, check the card, and open a local studio where they edit, pick a style and render. In the reel, the
 clip freezes on them, the room turns into a styled card, hand-drawn notes with arrows describe them, and the
 video lets go again. The video keeps the clip's own sound, which is silent while the card is up. The skill only
@@ -235,7 +235,7 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
    `status.release_out`. Take:
    - the freeze, at `freeze_out` + 0.3;
    - the middle of the hold;
-   - the release, at `release_out` + 0.3.
+   - the release, at `release_out` + 0.3 (or the last frame, when the video ends at the release).
 
    `ffmpeg -v error -y -ss <seconds> -i "<project>/renders/<clip>-main-character.mp4" -frames:v 1 "<project>/check-freeze.png"`
 
@@ -253,7 +253,7 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
    running, one is going in the studio: wait for it, and run yours after.
 4. Write `<project>/renders/caption.txt` with Write, in this order:
    - a short caption in the person's voice, built only from their answers;
-   - a line "Title to add in Instagram:", then the title as two lines;
+   - a line "Title to add in Instagram or TikTok:", then the title as two lines;
    - one line of 5 hashtags (two for the trend, three for their niche).
 
    On a later DONE, rewrite it only if the lines changed. The title is not in the video: the person adds it in

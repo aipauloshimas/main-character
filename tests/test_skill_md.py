@@ -128,7 +128,7 @@ def test_skill_md_has_no_title_in_the_copy_and_suggests_one_in_the_caption():
 
     # the title is suggested in caption.txt, before the hashtags, and the rules of the old hook are its rules
     step = text[text.index("## 9. On DONE"):text.index("## Style recipes")]
-    assert step.index("a short caption") < step.index('"Title to add in Instagram:"') < step.index("one line of 5 hashtags")
+    assert step.index("a short caption") < step.index('"Title to add in Instagram or TikTok:"') < step.index("one line of 5 hashtags")
     assert 'Line one is "this is your sign to".' in step
     assert 'Line two is the trend\'s own ("make an introduction video of yourself") or a twist' in step
     assert "lowercase" in step

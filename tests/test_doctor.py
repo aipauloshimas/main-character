@@ -107,7 +107,7 @@ def test_doctor_gives_the_exact_fixes(monkeypatch, tmp_path):
     assert result["packages"]["PIL"] is not None
     assert "numpy: not installed" in text and "onnxruntime: not installed" in text
     assert "\n  python -m pip install numpy pillow onnxruntime\n" in text
-    assert "\n  python mc.py doctor --download-model\n" in text
+    assert f"\n  {doctor.MODEL_FIX}\n" in text and "scripts" in doctor.MODEL_FIX
     assert "matte model: missing (a download of about 15 MB from https://github.com/" in text
     assert "Ask the person" in text  # these install and download things
     # in the order the lines are given: the checks first, then the fixes

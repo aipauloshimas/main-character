@@ -1,7 +1,7 @@
 """The render: a project folder in, the finished videos out.
 
 render() plans the timeline, draws the card pictures, encodes each segment, joins the parts, adds
-the sound (the clip's own and the click) and writes the cover. It follows the quality of the clip (ruling Q1):
+the sound (the clip's own and the click) and writes the cover. It follows the quality of the clip:
 
 - The frame rate is the clip's own (media.output_fps), up to 60. Every frame count, here and in the
   timeline, is in frames of that rate, so no frame is made up and none is repeated.

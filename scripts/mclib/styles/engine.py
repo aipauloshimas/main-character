@@ -387,8 +387,7 @@ def _tight(ctx: MatteContext) -> MatteContext:
     width on either side), where that air is not cut off by the stage's edge: the head itself.
 
     The stats panel and the burst use it, and it is an accepted exception to the rule that a box
-    keeps off the air around the face (the controller's ruling on the review, option (a), and
-    ruling S2 for the burst). The panel is placed against the whole face box first. Where it does
+    keeps off the air around the face (a hero box this big would rarely fit otherwise). The panel is placed against the whole face box first. Where it does
     not fit there (on a close-up the room beside the head can be narrower than the panel: 341 px
     for 373 on the plate's matte) it falls back to this context: it may then overlap the air, but
     never the head, and that overlap is not flagged as a clash. The burst, and the tr note while it

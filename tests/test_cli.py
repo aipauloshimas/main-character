@@ -357,7 +357,7 @@ def test_cli_doctor_downloads_the_model_only_when_asked(monkeypatch, tmp_path, c
     mc.main(["doctor"])  # it asks for nothing: a report that says the model is missing
     first = capsys.readouterr()
     assert downloads == [] and "matte model: missing" in first.out
-    assert "python mc.py doctor --download-model" in first.out
+    assert "mc.py\" doctor --download-model" in first.out
 
     mc.main(["doctor", "--download-model"])
     second = capsys.readouterr()

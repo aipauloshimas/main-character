@@ -22,7 +22,7 @@ from .palette import floor_contrast, text_contrast
 from .styles.recipes import complete as complete_recipe
 from .styles.recipes import validate_recipe
 
-SCHEMA = 2  # 2 is the clip's own shape (Amendment 1); 1 had the letterbox, the full screen and a title (the hook)
+SCHEMA = 2  # 2 is the clip's own shape; 1 had the letterbox, the full screen and a title (the hook)
 PROJECT_FILE = "project.json"
 LAYOUTS = ("landscape", "portrait")  # the shape of a clip: wide or square, or tall (plan_size has its size)
 _SCHEMA_1_LAYOUTS = {"letterbox": "landscape", "fullscreen": "portrait"}
@@ -59,7 +59,7 @@ _EMOJI = re.compile("[" + "".join(f"{chr(first)}-{chr(last)}" for first, last in
 
 def empty_copy() -> dict:
     """A copy block with no text yet: four notes, a name and the extras. There is no title (a hook): the
-    person adds that in the app, and the skill only suggests one in the caption (Amendment 1)."""
+    person adds that in the app, and the skill only suggests one in the caption."""
     return {
         "notes": {key: "" for key in NOTE_KEYS},
         "name": "",
@@ -114,7 +114,7 @@ def _migrated(project):
       "portrait", and the work size and the positions of the notes, which are in px of the plan, are the
       plan's of a 16:9 and a 9:16 clip, which is what those two were. A project of another shape of clip
       was cut at a size that is not its plan: init cuts it again, and render says so.
-    - The title is gone, whatever the schema: the edit has none (Amendment 1), so the hook of the copy and
+    - The title is gone, whatever the schema: the edit has none, so the hook of the copy and
       of each version is dropped.
     - The clip keeps its own sound unless the file says otherwise: a file from before the setting has
       audio.original on.

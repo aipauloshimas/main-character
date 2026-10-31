@@ -4,7 +4,7 @@ Turn one short clip of yourself into the "this is your sign to make an introduct
 right inside Claude Code.
 
 The clip freezes on you, the room turns into a styled card, and hand-drawn notes with arrows say who you are.
-Three seconds later it lets go, right as you crack a smile. Claude interviews you, writes the notes, and opens a
+Three seconds later it lets go, and your clip plays on. Claude interviews you, writes the notes, and opens a
 studio page on your computer where you edit every line, pick or build a style, and render.
 
 By Paulo (@pauloshimas). Everything runs on your computer: no paid service, no API key.
@@ -26,6 +26,9 @@ you can line your sound up with it.
 
 ## Requirements
 
+Claude checks all of this for you on the first run and asks before installing anything. On a Mac, type
+`python3` wherever this page says `python`.
+
 - Claude Code, on Windows or macOS.
 - Python 3.10 or newer.
 - ffmpeg, with ffprobe, on your PATH, built with libx264. An iPhone shoots HDR by default, so it also has to
@@ -35,15 +38,29 @@ you can line your sound up with it.
 
 ## Install
 
-1. Download this repository (Code > Download ZIP, or `git clone`) and put the whole folder, named
-   `main-character`, into your Claude Code skills folder, so that `SKILL.md` ends up at:
-   - macOS: `~/.claude/skills/main-character/SKILL.md`
-   - Windows: `C:\Users\<you>\.claude\skills\main-character\SKILL.md`
-2. Start Claude Code, or restart it if it was open.
+The quickest way: in a terminal (Terminal on macOS, PowerShell on Windows), run
+
+```
+git clone https://github.com/aipauloshimas/main-character ~/.claude/skills/main-character
+```
+
+Or by hand:
+
+1. Code > Download ZIP, and unzip it. The folder comes out as `main-character-main`: rename it to
+   `main-character`.
+2. Put that folder into your Claude Code skills folder, so that `SKILL.md` ends up at:
+   - macOS: `~/.claude/skills/main-character/SKILL.md` (`.claude` is a hidden folder: in Finder, press
+     Cmd+Shift+. to see it)
+   - Windows: `C:\Users\<you>\.claude\skills\main-character\SKILL.md` (create the `skills` folder if it isn't
+     there)
+
+Then start Claude Code, or restart it if it was open.
 
 ## First run
 
-1. Open Claude Code in the folder that holds your clip.
+1. Open Claude Code in the folder that holds your clip: open a terminal there (on Windows, right-click the
+   folder > Open in Terminal; on a Mac, right-click > New Terminal at Folder) and type `claude`. The Claude
+   desktop app works too.
 2. Type `/main-character` and give it your clip: drop the file or paste its path. No clip yet? Claude shows you
    how to shoot one.
 3. Claude runs the setup check first: the doctor. It lists what is installed, what is missing, and the command

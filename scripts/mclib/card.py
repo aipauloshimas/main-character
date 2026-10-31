@@ -1,7 +1,7 @@
 """The card: the picture of the freeze. It is the stage (the frame turned into the style's picture) with
 the notes, the arrows, the hero and the extras over it. The studio previews it, and the render encodes it.
 
-The card is the clip's own frame (Amendment 1): there is nothing around it, no bars, no gradient and no
+The card is the clip's own frame: there is nothing around it, no bars, no gradient and no
 title. It is drawn at the plan, the size the project's frames and mattes are cut at (project["work"],
 1080 px wide, in the clip's shape), or at any other size of that shape, which is what a final render
 does at the clip's own size: every size in px of the style is multiplied by size width / plan width

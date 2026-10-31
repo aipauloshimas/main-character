@@ -1,7 +1,6 @@
 """Constants for /main-character: the plan, the size of the output, timing, fonts and paths.
 
-Times are in seconds and sizes in pixels. Every value here comes from the design spec, so
-change it there first.
+Times are in seconds and sizes in pixels.
 """
 
 from __future__ import annotations
@@ -9,7 +8,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# The output is the clip's own frame, in its own shape, at the quality of the clip (Amendment 1): 16:9
+# The output is the clip's own frame, in its own shape, at the quality of the clip: 16:9
 # stays 16:9 and 9:16 stays 9:16, with no canvas and no bars around it.
 #
 # Everything is laid out at the plan, a size 1080 px wide that has the clip's shape, which is where the
@@ -53,7 +52,7 @@ def layout_name(width: int, height: int) -> str:
     return "landscape" if width >= height else "portrait"
 
 
-# The Reels safe area (ruling S1, amended by Amendment 1), for a plan that is tall: at least this many
+# The Reels safe area, for a plan that is tall: at least this many
 # times taller than wide, which is a 9:16 clip. Instagram and TikTok draw the caption, the username and
 # the audio line over the bottom of the frame, and the like, comment and share buttons in a rail at its
 # right, and the person adds the title in the app, at the top. Notes, arrows, hero boxes, tape and stars
@@ -95,7 +94,7 @@ TIMING_RANGES = {
 STAGGER = dict(top_after=2, arrows_after=5, out_before=6, boil_every=7, boil_variants=3, flash=(0.85, 0.40))
 
 CLIP_RANGE = (2.0, 30.0)  # shortest and longest clip accepted
-MIN_BITRATE = 10_000_000  # bits per second: a final render never encodes under 10 Mbps (Q1)
+MIN_BITRATE = 10_000_000  # bits per second: a final render never encodes under 10 Mbps
 CONTRAST_MIN = 3.0  # lowest text contrast (WCAG ratio) the style guard allows
 NOTE_MIN_PX = 36  # smallest size a note's text is drawn at, on the 1080 px plan: about 13 pt on a phone
 
@@ -112,7 +111,7 @@ MODEL_URL = "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1
 MODEL_SHA256 = "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
 
 # The fonts of the notes and the hero elements: role -> (file in fonts/, variable-font axis values or None).
-# The edit draws no title (Amendment 1), so there is no font for one.
+# The edit draws no title (the person adds it in the app), so there is no font for one.
 FONT_FILES = {
     "marker": ("PatrickHandSC-Regular.ttf", None),
     "comic": ("Bangers-Regular.ttf", None),
