@@ -1,7 +1,7 @@
 """The render: a project folder in, the finished videos out.
 
 render() plans the timeline, draws the card pictures, encodes each segment, joins the parts, adds
-the sound (the clip's own and the click) and writes the cover. It follows the quality of the clip:
+the sound (the clip's own and the click). It follows the quality of the clip:
 
 - The frame rate is the clip's own (media.output_fps), up to 60. Every frame count, here and in the
   timeline, is in frames of that rate, so no frame is made up and none is repeated.
@@ -52,14 +52,12 @@ _CLIP_KEYS = ("path", "stem", "width", "height", "fps", "duration")  # what a re
 class RenderResult:
     """What a render made.
 
-    video is the finished video (renders/preview.mp4 for a preview). cover is the card as a still,
-    or None for a preview, which makes only the video. frames is the length of the video in frames,
-    and freeze_out and release_out say when the card starts and ends, in seconds. notes are the
+    video is the finished video (renders/preview.mp4 for a preview). frames is the length of the
+    video in frames, and freeze_out and release_out say when the card starts and ends, in seconds. notes are the
     things the person should know about how the clip was made (see output_notes), one sentence each.
     """
 
     video: Path
-    cover: Path | None
     frames: int
     freeze_out: float
     release_out: float
@@ -111,14 +109,13 @@ def render(
     The finished video is renders/<clip>-main-character.mp4. Its sound is the clip's own (when
     audio.original is on, and the clip has sound), silent over the card and back in step with the
     picture when the video lets go, with the shutter click on the freeze when timing.shutter is on.
-    The card as a still gives renders/<clip>-cover.png. The skill adds no music: the person adds
-    the sound in their own app. status.rendered_at, status.outputs (the files, as
+    The skill adds no music: the person adds whatever they like in their own app. status.rendered_at, status.outputs (the files, as
     paths inside the project folder) and the moments the card starts and ends, status.freeze_out
     and status.release_out (seconds), are saved to project.json, which is read again just before,
     so a change made while the render ran is kept.
 
     A preview is at the plan's size and fast: only renders/preview.mp4, with the same sound as the
-    finished video (the clip's own, and the click) but no cover and no change to the
+    finished video (the clip's own, and the click) and no change to the
     project. A final render is at the size of the clip (config.output_size), and
     when that is not the plan's it cuts the freeze frame out of the clip again at that size, with
     matte_runner (matte.run_rvm unless a test gives another), at the detail the project says: that
@@ -126,7 +123,7 @@ def render(
 
     progress, if given, is called as progress(stage, done, total) after each piece of work: the
     stages are "cutout" (when the freeze frame is cut at the output's size), "cards", "parts",
-    "join", "sound" and "cover", with the pieces of the stage done and in all. Raises
+    "join" and "sound", with the pieces of the stage done and in all. Raises
     FileNotFoundError when the clip is missing, ValueError for a project that is not
     valid or a freeze frame past the end of the clip, and MediaError when the joined video does not
     have the frames the plan has (a click placed by the plan would be off).
@@ -184,9 +181,9 @@ def _render(
         _check_join(joined, timeline.total_frames)
         report("join", 1, 1)
 
-        def result(video: Path, cover: Path | None) -> RenderResult:
+        def result(video: Path) -> RenderResult:
             return RenderResult(
-                video, cover, timeline.total_frames, timeline.freeze_out,
+                video, timeline.total_frames, timeline.freeze_out,
                 timeline.release_out, output_notes(clip, rate),
             )
 
@@ -205,22 +202,18 @@ def _render(
                 _publish({heard: video})
             else:
                 _publish({joined: video})
-            return result(video, None)
+            return result(video)
 
         stem = clip["stem"]
-        video, cover = work / f"{stem}-main-character.mp4", work / f"{stem}-cover.png"
+        video = work / f"{stem}-main-character.mp4"
         _add_sound(joined, video, click, timeline.freeze_out, voice)
         if click or voice:
             report("sound", 1, 1)
-        card.render_card(project_dir, project, size=size, source=full).save(cover)
-        report("cover", 1, 1)
 
-        finished = {video: renders / video.name, cover: renders / cover.name}
+        finished = {video: renders / video.name}
         _publish(finished)
-        _record(
-            project_dir, [finished[video], finished[cover]], timeline.freeze_out, timeline.release_out,
-        )
-        return result(finished[video], finished[cover])
+        _record(project_dir, [finished[video]], timeline.freeze_out, timeline.release_out)
+        return result(finished[video])
     finally:
         _remove_tree(work)  # the parts of a render are large: not left behind by one that failed
 

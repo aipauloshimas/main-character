@@ -240,7 +240,7 @@ class Studio:
         written after the render has saved its own status, and to the file as it is then."""
         with self.job():
             result = render.render(self.dir, matte_runner=self.matte_runner)
-            outputs = [f"renders/{path.name}" for path in (result.video, result.cover)]
+            outputs = [f"renders/{path.name}" for path in (result.video,)]
             done = now_stamp()
             self.update(mutate=lambda project: project["status"].update(done_at=done))
         return {"outputs": outputs, "notes": result.notes, "done_at": done}

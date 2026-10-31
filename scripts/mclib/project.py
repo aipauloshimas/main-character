@@ -59,7 +59,7 @@ _EMOJI = re.compile("[" + "".join(f"{chr(first)}-{chr(last)}" for first, last in
 
 def empty_copy() -> dict:
     """A copy block with no text yet: four notes, a name and the extras. There is no title (a hook): the
-    person adds that in the app, and the skill only suggests one in the caption."""
+    person adds any text in the app."""
     return {
         "notes": {key: "" for key in NOTE_KEYS},
         "name": "",

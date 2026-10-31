@@ -107,8 +107,8 @@ or a missing ffmpeg (back to step 1), an HDR clip that this ffmpeg can't convert
 ## 5. Write the copy
 
 Write versions A, B and C: three different jokes in the person's tone, not three rewordings. A version is the four
-notes, the name and the extras. The video has no title: the person adds it in Instagram or TikTok, and you suggest
-one in `caption.txt` (step 9). Run this checklist on each version before anyone sees it:
+notes, the name and the extras. The video has no title: the person adds any text in Instagram or TikTok. Run
+this checklist on each version before anyone sees it:
 
 - [ ] Top left (`tl`) says what they do, in their own words.
 - [ ] Bottom left (`bl`) starts with "But" and is the joke: true, specific, about 34 characters at most.
@@ -229,8 +229,7 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
 
 ## 9. On DONE: check the render
 
-1. `status.outputs` in project.json lists the files inside `<project>`: `renders/<clip>-main-character.mp4`,
-   and `renders/<clip>-cover.png`.
+1. `status.outputs` in project.json lists the file inside `<project>`: `renders/<clip>-main-character.mp4`.
 2. Look at three stills of the video. The render records its own moments, in seconds, as `status.freeze_out` and
    `status.release_out`. Take:
    - the freeze, at `freeze_out` + 0.3;
@@ -251,22 +250,11 @@ A change the person asks for in the chat goes through `patch`; then ask them to 
    them to reload and press Render again. If the studio is closed, run
    `python "<skill dir>/scripts/mc.py" render "<project>"` yourself. If it says another render is
    running, one is going in the studio: wait for it, and run yours after.
-4. Write `<project>/renders/caption.txt` with Write, in this order:
-   - a short caption in the person's voice, built only from their answers;
-   - a line "Title to add in Instagram or TikTok:", then the title as two lines;
-   - one line of 5 hashtags (two for the trend, three for their niche).
-
-   On a later DONE, rewrite it only if the lines changed. The title is not in the video: the person adds it in
-   Instagram or TikTok, like the sound. Its rules:
-   - Line one is "this is your sign to".
-   - Line two is the trend's own ("make an introduction video of yourself") or a twist that answers the
-     confession.
-   - Keep both lines lowercase and about 40 characters at most each. The person types them as written.
-5. Tell them where the files are, and that the video keeps the clip's own sound (silent over the card, back in
+4. Tell them where the video is, and that it keeps the clip's own sound (silent over the card, back in
    step when the video lets go; Original sound in the Timing tab mutes it) and has no title or music: they add
-   the sound and the title from `caption.txt` in Instagram or TikTok. Tell them the second the freeze lands
-   (`status.freeze_out`, for example "the freeze lands at 3.08 s"), so they can line their sound up with it.
-6. If the studio is still open, run `wait` again with `--since "<the DONE stamp>"` in the background. When they
+   any text and any music they like in Instagram or TikTok. Tell them the second the freeze lands
+   (`status.freeze_out`, for example "the freeze lands at 3.08 s"), so they can line their music up with it.
+5. If the studio is still open, run `wait` again with `--since "<the DONE stamp>"` in the background. When they
    are finished, stop the `serve` and `wait` background tasks.
 
 ## Style recipes
@@ -355,7 +343,7 @@ The contrast guard: at least 3.0 (WCAG), measured where the lettering sits.
   or difference keying, even when another skill suggests one.
 - **Nothing is stated as fact that the person didn't say.** Your ideas are options until they confirm them.
 - **Ask before any download or install**, naming what it is, its size and its source.
-- **No music.** Never download or add any: the person adds the sound in their own app.
+- **No music.** Never download or add any: the person adds any music they like in their own app.
 - **Keep the person's own words.** Trim to fit; never change what they mean. Emojis are stripped: the video's
   fonts can't draw them, and `patch` removes them with a warning. Any other character a font can't draw is
   warned about and flagged, never removed: ask the person what to write instead.

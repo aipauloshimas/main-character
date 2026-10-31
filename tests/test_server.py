@@ -56,9 +56,9 @@ def make_result(folder, preview=False) -> RenderResult:
     """What render.render returns, for a fake that wrote nothing."""
     renders = Path(folder) / "renders"
     if preview:
-        return RenderResult(renders / "preview.mp4", None, 10, 2.0, 5.0, [])
+        return RenderResult(renders / "preview.mp4", 10, 2.0, 5.0, [])
     return RenderResult(
-        renders / "synthetic-main-character.mp4", renders / "synthetic-cover.png", 10, 2.0, 5.0,
+        renders / "synthetic-main-character.mp4", 10, 2.0, 5.0,
         ["Rendered at 3840x2026; your clip is 4096x2160, bigger than 4K."],
     )
 
@@ -761,12 +761,10 @@ def test_preview_and_render(server):
     assert final.status == 200
     body = final.json()
     names = [Path(output).name for output in body["outputs"]]
-    assert names == ["synthetic-main-character.mp4", "synthetic-cover.png"] and "warning" not in body
+    assert names == ["synthetic-main-character.mp4"] and "warning" not in body
     saved = server.project()["status"]
     assert saved["outputs"] == body["outputs"] and saved["rendered_at"]
     assert STAMP.fullmatch(saved["done_at"]) and wait.parse_time(saved["done_at"]) > started
-    cover = server.get("/" + body["outputs"][1])
-    assert cover.status == 200 and picture(cover).size == (1920, 1080)  # the card at the size of the video
 
 
 def test_render_conflict(server, monkeypatch):

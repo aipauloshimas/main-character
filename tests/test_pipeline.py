@@ -680,6 +680,4 @@ def test_a_rotated_phone_clip_is_laid_out_and_rendered_at_its_display_size(
 
     shown = media.probe(result.video)
     assert (shown["width"], shown["height"]) == (1440, 2560)
-    with Image.open(result.cover) as cover:
-        assert cover.size == (1440, 2560)
     assert result.notes == []  # between 1080 wide and 4K: not scaled, and nothing to say about it

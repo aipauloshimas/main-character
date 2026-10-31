@@ -258,26 +258,21 @@ def test_render_preview_is_at_the_plans_size(fake_project):
     assert (info["width"], info["height"], info["fps"]) == (1080, 608, 30.0)
     assert info["frames"] == result.frames == 210
     assert result.video == folder.resolve() / "renders" / "preview.mp4"
-    assert result.cover is None
     # Nothing but the preview (and the render lock's file) is written, and the project is not touched
     assert sorted(path.name for path in (folder / "renders").iterdir()) == [".render-lock", "preview.mp4"]
     assert project_file.load(folder) == before
 
 
-def test_render_writes_cover_and_status(rendered, tmp_path, fake_matte):
+def test_render_writes_only_the_video_and_status(rendered):
     result, folder, project, _ = rendered
 
-    # the cover is the card at the size of the video, on the freeze frame cut at that size
-    assert result.cover == folder.resolve() / "renders" / "synthetic-cover.png"
-    expected = card.render_card(
-        folder, project, ALL_VISIBLE, size=OUT, source=frozen(folder, project, tmp_path, fake_matte))
-    with Image.open(result.cover) as cover:
-        assert cover.size == OUT
-        assert np.array_equal(np.asarray(cover.convert("RGB")), np.asarray(expected))
+    # a final render makes the video and nothing else: no cover, no caption
+    assert result.video == folder.resolve() / "renders" / "synthetic-main-character.mp4"
+    assert not hasattr(result, "cover")
+    assert not list((folder / "renders").glob("*-cover.png"))
 
     status = project_file.load(folder)["status"]
-    assert status["outputs"] == [
-        "renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
+    assert status["outputs"] == ["renders/synthetic-main-character.mp4"]
     assert all((folder / path).is_file() for path in status["outputs"])
     # It records its own moments too, in seconds, so that whoever checks the video knows where to look
     assert status["freeze_out"] == result.freeze_out == pytest.approx(60 / 30)
@@ -297,8 +292,7 @@ def test_render_with_shutter(fake_project, fake_matte):
     result = render.render(folder, matte_runner=fake_matte())
 
     assert result.frames == 210
-    assert project_file.load(folder)["status"]["outputs"] == [
-        "renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
+    assert project_file.load(folder)["status"]["outputs"] == ["renders/synthetic-main-character.mp4"]
 
     # The video has a sound: the click, 120 ms of it on the freeze (frame 60, 2.0 s)
     (audio,) = ffprobe(result.video, "codec_name", stream="a")
@@ -626,7 +620,7 @@ def test_render_reports_progress(small_final):
         if stage not in stages:
             stages.append(stage)
     # (the freeze frame is cut at the size of the video, which is not the plan's: that is the "cutout")
-    assert stages == ["cutout", "cards", "parts", "join", "sound", "cover"]
+    assert stages == ["cutout", "cards", "parts", "join", "sound"]
     assert [step for step in progress if step[0] == "cutout"] == [("cutout", 1, 1)]
     for stage in stages:  # each stage ends having done all of its pieces
         last = [step for step in progress if step[0] == stage][-1]
@@ -841,13 +835,13 @@ def test_render_publishes_and_records_through_a_lock_that_clears(fake_project, f
 
     result = render.render(folder, matte_runner=fake_matte())
 
-    # the video, the cover and project.json were each refused twice, 0.1 s apart, and then went through
-    assert refusals == {"synthetic-main-character.mp4": 2, "synthetic-cover.png": 2, "project.json": 2}
-    assert naps == [0.1] * 6
-    assert result.video.is_file() and result.cover.is_file()
+    # the video and project.json were each refused twice, 0.1 s apart, and then went through
+    assert refusals == {"synthetic-main-character.mp4": 2, "project.json": 2}
+    assert naps == [0.1] * 4
+    assert result.video.is_file()
     assert not (folder / "renders" / "_work").exists()
     status = project_file.load(folder)["status"]
-    assert status["outputs"] == ["renders/synthetic-main-character.mp4", "renders/synthetic-cover.png"]
+    assert status["outputs"] == ["renders/synthetic-main-character.mp4"]
     assert status["rendered_at"] is not None
 
 
@@ -861,7 +855,7 @@ def test_render_publishes_over_a_video_that_a_player_really_has_open(fake_projec
     player = open(old, "rb")  # the studio's player, or a virus scan, has it open
 
     def let_go_soon(stage, done, total):
-        if stage == "cover":  # the render is about to move its files into place
+        if stage == "sound":  # the render is about to move its files into place
             threading.Timer(0.35, player.close).start()
 
     try:

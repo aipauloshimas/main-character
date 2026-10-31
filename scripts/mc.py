@@ -260,8 +260,6 @@ def _render(args: argparse.Namespace) -> int:
 
     result = render.render(_project_dir(args.project_dir), preview=args.preview, progress=_show_progress)
     print(f"VIDEO {result.video}")
-    if result.cover:
-        print(f"COVER {result.cover}")
     print(f"FRAMES {result.frames} FREEZE {result.freeze_out:.2f} RELEASE {result.release_out:.2f}")
     for note in result.notes:
         print(f"WARNING {note}")

@@ -1078,7 +1078,7 @@ async function makeRender() {
   }
 }
 
-const KINDS = [[/\.mp4$/, 'Video'], [/-cover\.png$/, 'Cover image']];
+const KINDS = [[/\.mp4$/, 'Video']];
 
 function paintResults() {
   const { status } = state.project;

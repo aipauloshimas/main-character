@@ -112,7 +112,7 @@ def test_skill_md_renders_the_clips_own_format():
     assert "Never put a note on the face." in text
 
 
-def test_skill_md_has_no_title_in_the_copy_and_suggests_one_in_the_caption():
+def test_skill_md_has_no_title_in_the_copy_and_no_caption_file():
     text = skill_text()
 
     # a version is the four notes, the name and the extras: no hook anywhere, in the rules, the limits or the example
@@ -126,12 +126,10 @@ def test_skill_md_has_no_title_in_the_copy_and_suggests_one_in_the_caption():
     assert {key: int(value) for key, value in limits.items()} == {k: v for k, v in SOFT_LIMITS.items() if k != "bubble"}
     assert "`extras.bubble`" in text and f"{SOFT_LIMITS['bubble']} characters at" in " ".join(text.split())
 
-    # the title is suggested in caption.txt, before the hashtags, and the rules of the old hook are its rules
+    # the skill makes the video only: no caption.txt, no title suggestion, no cover; the freeze second is still told
     step = text[text.index("## 9. On DONE"):text.index("## Style recipes")]
-    assert step.index("a short caption") < step.index('"Title to add in Instagram or TikTok:"') < step.index("one line of 5 hashtags")
-    assert 'Line one is "this is your sign to".' in step
-    assert 'Line two is the trend\'s own ("make an introduction video of yourself") or a twist' in step
-    assert "lowercase" in step
+    assert "caption.txt" not in text and "-cover.png" not in text
+    assert "status.freeze_out" in step and "any music they like" in " ".join(step.split())
     # the stills are at the clip's resolution, so the crops are sized by the still
     assert "own resolution" in step and "x up to W" + chr(0x2212) + "480 and y up to H" + chr(0x2212) + "480" in step
 
@@ -141,7 +139,7 @@ def test_readme_says_the_reel_keeps_the_clips_own_format():
 
     assert "your clip's own format and resolution" in readme
     assert "1080x1920" not in readme and "letterbox" not in readme.lower() and "hook" not in readme.lower()
-    assert "a two-line title to add in Instagram or TikTok" in readme
+    assert "has no title" in readme and "any music you like" in readme
     assert "1. Record one shot.\n2. Hold a deadpan stare for two seconds, then carry on naturally.\n" in readme  # the guide
     assert "Five minutes" not in readme and "Shoot horizontally" not in readme
 
@@ -258,8 +256,13 @@ def test_skill_md_and_readme_have_no_music_and_no_trend_timing():
             assert gone not in words, (name, gone)
     assert "with-music" not in notes and "upload their own" not in notes
     # the rule says it plainly, and step 9 tells the person the second the freeze lands
-    assert "- **No music.** Never download or add any: the person adds the sound in their own app." in text
+    assert "- **No music.** Never download or add any: the person adds any music they like in their own app." in text
     step9 = text[text.index("## 9. On DONE"):text.index("## Style recipes")]
     assert "`status.freeze_out`" in step9 and "the freeze lands at" in step9
-    # and the title of the trend, in the caption, is the format's name and stays
-    assert '"this is your sign to"' in step9
+
+
+def test_readme_lists_one_file_the_video():
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+
+    assert "caption.txt" not in readme and "-cover.png" not in readme
+    assert "-main-character.mp4" in readme

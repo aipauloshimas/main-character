@@ -11,18 +11,16 @@ By Paulo (@pauloshimas). Everything runs on your computer: no paid service, no A
 
 ## What you get
 
-Three files, in `main-character/<your clip>/renders/`:
+One file, in `main-character/<your clip>/renders/`:
 
 | File | What it is |
 |---|---|
 | `<clip>-main-character.mp4` | The reel, in your clip's own format and resolution (16:9 stays 16:9, 9:16 stays 9:16), H.264 at your clip's frame rate, with your clip's own sound |
-| `<clip>-cover.png` | The full card, ready to use as a thumbnail |
-| `caption.txt` | A caption, a two-line title to add in Instagram or TikTok, and 5 hashtags, written from your answers |
 
 The video keeps your clip's own sound (mute it in the studio with Original sound) and has no title, so you can
-add the trending sound and your title in Instagram or TikTok. The sound is silent while the card is up, and comes
+add any music you like and your own text in Instagram or TikTok. The sound is silent while the card is up, and comes
 back in step with you when the video lets go. The studio's Timing tab tells you the second the freeze lands, so
-you can line your sound up with it.
+you can line your music up with it.
 
 ## Requirements
 
@@ -69,8 +67,7 @@ Then start Claude Code, or restart it if it was open.
    - Windows (PowerShell): `python "$HOME\.claude\skills\main-character\scripts\mc.py" doctor`
 4. Answer five quick questions. Claude writes three versions of your notes, you pick one in the chat, and Claude
    gives you a link to the studio.
-5. In the studio, edit any line, pick or build a style, and press Render. Claude checks the video and writes
-   your caption.
+5. In the studio, edit any line, pick or build a style, and press Render. Claude checks the video.
 
 ## Shoot your take
 

@@ -245,9 +245,9 @@ def test_cli_render_prints_the_files_and_every_note(tmp_path, monkeypatch, capsy
         seen.append((project_dir, preview))
         renders = Path(project_dir) / "renders"
         if preview:
-            return RenderResult(renders / "preview.mp4", None, 188, 2.0667, 5.0667)
+            return RenderResult(renders / "preview.mp4", 188, 2.0667, 5.0667)
         return RenderResult(
-            renders / "a-main-character.mp4", renders / "a-cover.png", 188, 2.0667, 5.0667, warnings)
+            renders / "a-main-character.mp4", 188, 2.0667, 5.0667, warnings)
 
     monkeypatch.setattr(render, "render", fake_render)
     renders = folder.resolve() / "renders"
@@ -255,7 +255,7 @@ def test_cli_render_prints_the_files_and_every_note(tmp_path, monkeypatch, capsy
     assert mc.main(["render", str(folder)]) == 0
     assert capsys.readouterr().out.splitlines() == [
         f"VIDEO {renders / 'a-main-character.mp4'}",
-        f"COVER {renders / 'a-cover.png'}", "FRAMES 188 FREEZE 2.07 RELEASE 5.07",
+        "FRAMES 188 FREEZE 2.07 RELEASE 5.07",
         f"WARNING {warnings[0]}", f"WARNING {warnings[1]}"]
 
     assert mc.main(["render", str(folder), "--preview"]) == 0
@@ -440,16 +440,17 @@ def test_cli_init_then_render_a_24_fps_clip(synthetic_clip_24, tmp_path, monkeyp
     lines = capsys.readouterr().out.splitlines()
     video = Path(lines[0].removeprefix("VIDEO "))
     assert video == folder.resolve() / "renders" / f"{name}-main-character.mp4"
-    assert [line.split(" ")[0] for line in lines] == ["VIDEO", "COVER", "FRAMES"]  # and no warning
+    assert [line.split(" ")[0] for line in lines] == ["VIDEO", "FRAMES"]  # and no warning
     info = media.probe(video)
     # the video is the clip's own frame: 1920x1080 stays 1920x1080
     assert (info["width"], info["height"], info["fps"], info["frames"]) == (1920, 1080, 24.0, plan.total_frames)
     assert plan.total_frames == 48 + 24 + 48  # the head is the 2 s before the freeze, and the tail the 2 s of clip left
-    assert lines[2] == f"FRAMES {plan.total_frames} FREEZE {plan.freeze_out:.2f} RELEASE {plan.release_out:.2f}"
+    assert lines[1] == f"FRAMES {plan.total_frames} FREEZE {plan.freeze_out:.2f} RELEASE {plan.release_out:.2f}"
     assert project_file.load(folder)["status"]["outputs"] == [
-        f"renders/{name}-main-character.mp4", f"renders/{name}-cover.png"]
+        f"renders/{name}-main-character.mp4"]
+    assert not list((folder / "renders").glob("*-cover.png"))
 
-    # and a preview, which is at the plan's size, has no cover, and leaves the project as the render left it
+    # and a preview, which is at the plan's size, and leaves the project as the render left it
     before = project_file.load(folder)
     assert mc.main(["render", str(folder), "--preview"]) == 0
     lines = capsys.readouterr().out.splitlines()

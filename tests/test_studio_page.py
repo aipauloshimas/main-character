@@ -156,11 +156,10 @@ def test_the_copy_of_the_plan_is_on_the_page():
 def test_the_page_says_where_the_title_goes():
     html = read("index.html")
 
-    # One quiet line under the lines: the title is not part of the edit, the person adds it in the app
-    assert 'The title ("this is your sign to&hellip;") goes on in Instagram or TikTok, like the sound. ' \
-           "Claude suggests one when you render." in html
-    assert html.index("Edit the lines") < html.index("goes on in Instagram") < html.index('id="f-tl"')
-    assert re.search(r'<p class="[^"]*\bhint\b[^"]*">The title \(', html)  # a quiet one: the page's own muted hint
+    # One quiet line under the lines: the video has no title, the person adds any text in the app
+    assert "The video has no title: add any text you like in Instagram or TikTok." in html
+    assert html.index("Edit the lines") < html.index("The video has no title") < html.index('id="f-tl"')
+    assert re.search(r'<p class="[^"]*\bhint\b[^"]*">The video has no title', html)  # a quiet one: the page's own muted hint
 
 
 def test_the_page_does_not_show_the_versions():
